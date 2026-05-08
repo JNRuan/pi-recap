@@ -1,0 +1,46 @@
+{
+  "name": "pi-recap",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "JNRuan <jnruan@gmail.com>",
+  "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "eslint": "^10.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "husky": "^9.0.0",
+    "lint-staged": "^17.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^6.0.0",
+    "typescript-eslint": "^8.0.0"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "lint": "eslint src/",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{mjs,json,md}": [
+      "prettier --write"
+    ]
+  }
+}
