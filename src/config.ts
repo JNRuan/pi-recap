@@ -1,4 +1,7 @@
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 
 export const DEFAULTS = {
   provider: undefined as string | undefined,
@@ -51,60 +54,29 @@ export function loadSettingsPiRecap(sm: SettingsManager): Partial<RecapConfig> {
   return validatePiRecapSettings(raw);
 }
 
-export function parseRecapArgs(
-  raw: string
-): { ok: true; overrides: Partial<RecapConfig> } | { ok: false; error: string } {
-  const tokens = raw.trim().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return { ok: true, overrides: {} };
+export function parseRecapModel(raw: string): { provider: string; model: string } | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
 
-  const overrides: Record<string, unknown> = {};
-  let hasProvider = false;
-  let hasModel = false;
+  const slash = trimmed.indexOf("/");
+  if (slash === -1 || slash === 0 || slash === trimmed.length - 1) return null;
 
-  for (const token of tokens) {
-    const eq = token.indexOf("=");
-    if (eq === -1) return { ok: false, error: `Invalid format: ${token}` };
+  return {
+    provider: trimmed.slice(0, slash),
+    model: trimmed.slice(slash + 1)
+  };
+}
 
-    const key = token.slice(0, eq);
-    const value = token.slice(eq + 1);
-
-    switch (key) {
-      case "provider":
-        overrides.provider = value;
-        hasProvider = true;
-        break;
-      case "model":
-        overrides.model = value;
-        hasModel = true;
-        break;
-      case "effort":
-        if (!VALID_EFFORTS.has(value)) {
-          return {
-            ok: false,
-            error: `Invalid effort: ${value}. Must be low, medium, or high.`
-          };
-        }
-        overrides.effort = value;
-        break;
-      case "interval":
-        overrides.intervalMs = Number(value);
-        break;
-      case "wordLimit":
-        overrides.wordLimit = Number(value);
-        break;
-      default:
-        return { ok: false, error: `Unknown key: ${key}` };
-    }
+export function saveRecapSettings(provider: string, model: string): void {
+  const path = join(getAgentDir(), "settings.json");
+  let settings: Record<string, unknown> = {};
+  try {
+    settings = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+  } catch {
+    // File doesn't exist or is invalid, start fresh
   }
-
-  if (hasProvider !== hasModel) {
-    return {
-      ok: false,
-      error: "provider and model must be set together"
-    };
-  }
-
-  return { ok: true, overrides };
+  settings.piRecap = { ...(settings.piRecap as Record<string, unknown>), provider, model };
+  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n", "utf-8");
 }
 
 export function resolveConfig(

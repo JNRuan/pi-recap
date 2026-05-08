@@ -3,7 +3,13 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { type RecapConfig, loadSettingsPiRecap, parseRecapArgs, resolveConfig } from "./config";
+import {
+  type RecapConfig,
+  loadSettingsPiRecap,
+  parseRecapModel,
+  resolveConfig,
+  saveRecapSettings
+} from "./config";
 import { buildRecentConversationText } from "./conversation";
 
 const RECAP_SYSTEM_PROMPT = `Write a recap of the conversation in 50 words or fewer.
@@ -24,8 +30,8 @@ function setRecap(text: string | undefined, ctx: RecapAwareContext) {
     return;
   }
 
-  ctx.ui.setWidget("pi-recap", (_tui, theme) => new Text(theme.italic("Recap: " + text), 0, 0), {
-    placement: "aboveEditor"
+  ctx.ui.setWidget("pi-recap", (_tui, theme) => new Text(theme.fg("dim", "Recap: " + text), 0, 0), {
+    placement: "belowEditor"
   });
 }
 
@@ -40,10 +46,7 @@ async function runRecap(ctx: ExtensionContext, opts: RunRecapOptions) {
   const leafId = ctx.sessionManager.getLeafId();
   if (!opts.force && leafId === lastRecapEntryId) return;
 
-  if (pending) {
-    await pending;
-    return;
-  }
+  if (pending) return;
 
   pending = (async () => {
     const branch = ctx.sessionManager.getBranch();
@@ -226,15 +229,37 @@ export default function piRecap(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("recap", {
-    description: "Refresh the session recap shown above the editor",
+    description:
+      "Refresh the session recap shown below the editor. Pass provider/model to override, or config to show settings.",
+    // eslint-disable-next-line @typescript-eslint/require-await -- API contract requires Promise<void>
     handler: async (args, ctx) => {
-      const parsed = parseRecapArgs(args);
-      if (!parsed.ok) {
-        ctx.ui.notify(parsed.error, "warning");
+      const trimmed = args.trim();
+
+      if (trimmed === "config") {
+        const sm = SettingsManager.create(ctx.cwd);
+        const settings = loadSettingsPiRecap(sm);
+        const config = resolveConfig(ctx, settings, {});
+        const provider = config.provider ?? ctx.model?.provider ?? "(none)";
+        const model = config.model ?? ctx.model?.id ?? "(none)";
+        ctx.ui.notify(
+          `Recap: provider=${provider} model=${model} effort=${config.effort} interval=${config.intervalMs}ms wordLimit=${config.wordLimit}`,
+          "info"
+        );
         return;
       }
 
-      await runRecap(ctx, { force: true, overrides: parsed.overrides });
+      let overrides: Partial<RecapConfig> = {};
+      if (trimmed) {
+        const parsed = parseRecapModel(trimmed);
+        if (!parsed) {
+          ctx.ui.notify("Usage: /recap provider/model | /recap config | /recap", "warning");
+          return;
+        }
+        saveRecapSettings(parsed.provider, parsed.model);
+        overrides = parsed;
+      }
+
+      void runRecap(ctx, { force: true, overrides });
       resetInterval(ctx);
     }
   });
