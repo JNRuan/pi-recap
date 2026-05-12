@@ -2,9 +2,10 @@ import { complete } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, type TUI } from "@earendil-works/pi-tui";
 import {
   type RecapConfig,
+  DEFAULTS,
   loadSettingsPiRecap,
   parseRecapModel,
   resolveConfig,
@@ -12,9 +13,9 @@ import {
 } from "./config";
 import { buildRecentConversationText } from "./conversation";
 
-const RECAP_SYSTEM_PROMPT = `Write a recap of the conversation in 50 words or fewer.
-Lean toward what just happened — the last few exchanges should dominate.
-Avoid restating early background unless it is directly relevant right now.
+const RECAP_SYSTEM_PROMPT = `Focus on what was accomplished — changes made, files edited, decisions reached, and issues resolved.
+Prefer concrete actions over discussion. If a problem was investigated but not fixed, note that.
+Keep it to 100 words or fewer.
 One paragraph, no bullets, no markdown headings.
 Do not start with the word "Recap" — that prefix will be added for you.`;
 
@@ -23,25 +24,82 @@ interface RecapWidgetState {
   loading: boolean;
 }
 
+const SPINNER = [
+  "\u280B",
+  "\u2819",
+  "\u2839",
+  "\u2838",
+  "\u283C",
+  "\u2834",
+  "\u2826",
+  "\u2827",
+  "\u2807",
+  "\u280F"
+];
+const SPIN_INTERVAL_MS = 80;
+
+// Widget-level animation state (module-scope, cleared on session_start)
+let recapWidgetTui: TUI | null = null;
+let recapWidgetText: Text | null = null;
+let spinInterval: ReturnType<typeof setInterval> | null = null;
+let spinFrame = 0;
+let recapTheme: { fg: (style: string, text: string) => string } | null = null;
+
+function spinLabel(): string {
+  const spin = SPINNER[spinFrame];
+  const label = "Recap: generating...";
+  return recapTheme ? recapTheme.fg("dim", `${spin} ${label}`) : `${spin} ${label}`;
+}
+
+function startSpinner() {
+  if (spinInterval) return;
+  spinFrame = 0;
+  spinInterval = setInterval(() => {
+    spinFrame = (spinFrame + 1) % SPINNER.length;
+    recapWidgetText?.setText(spinLabel());
+    recapWidgetTui?.requestRender();
+  }, SPIN_INTERVAL_MS);
+}
+
+function stopSpinner() {
+  if (spinInterval) {
+    clearInterval(spinInterval);
+    spinInterval = null;
+  }
+}
+
 function renderRecapWidget(ctx: { ui: ExtensionContext["ui"] }, state: RecapWidgetState) {
   if (state.text === null && !state.loading) {
     ctx.ui.setWidget("pi-recap", undefined);
+    stopSpinner();
+    recapWidgetTui = null;
+    recapWidgetText = null;
+    recapTheme = null;
     return;
   }
 
-  let content: string;
-  if (state.text === null && state.loading) {
-    content = "Generating recap\u2026";
-  } else if (state.text !== null && state.loading) {
-    content = state.text + "  Refreshing\u2026";
-  } else {
-    content = state.text ?? "";
-  }
+  ctx.ui.setWidget(
+    "pi-recap",
+    (tui, theme) => {
+      recapWidgetTui = tui;
+      recapTheme = theme as typeof recapTheme;
 
-  const label = "Recap: ";
-  ctx.ui.setWidget("pi-recap", (_tui, theme) => new Text(theme.fg("dim", label + content), 1, 1), {
-    placement: "aboveEditor"
-  });
+      if (state.loading) {
+        const spin = SPINNER[spinFrame];
+        recapWidgetText = new Text(theme.fg("dim", `${spin} Recap: generating...`), 1, 1);
+        return recapWidgetText;
+      }
+      recapWidgetText = null;
+      return new Text(theme.fg("dim", `Recap: ${state.text ?? ""}`), 1, 1);
+    },
+    { placement: "aboveEditor" }
+  );
+
+  if (state.loading) {
+    startSpinner();
+  } else {
+    stopSpinner();
+  }
 }
 
 function errorMessage(err: unknown): string {
@@ -77,7 +135,21 @@ async function runRecap(ctx: ExtensionContext, opts: RunRecapOptions) {
     const settings = loadSettingsPiRecap(sm);
     const config = resolveConfig(ctx, settings, opts.overrides);
 
-    const model = ctx.model as Model<Api> | undefined;
+    // Use explicit override if configured, otherwise fall back to the active model
+    let model: Model<Api> | undefined;
+    if (config.provider && config.model) {
+      model = ctx.modelRegistry.find(config.provider, config.model);
+      if (!model) {
+        ctx.ui.notify(
+          `Recap: model not found in registry — ${config.provider}/${config.model}`,
+          "warning"
+        );
+        return;
+      }
+    } else {
+      model = ctx.model as Model<Api> | undefined;
+    }
+
     if (!model) {
       ctx.ui.notify("No active model to generate recap", "warning");
       return;
@@ -89,7 +161,7 @@ async function runRecap(ctx: ExtensionContext, opts: RunRecapOptions) {
       return;
     }
     if (!auth.apiKey) {
-      ctx.ui.notify("Recap: no API key for active model", "warning");
+      ctx.ui.notify(`Recap: no API key for ${model.provider}/${model.id}`, "warning");
       return;
     }
 
@@ -169,7 +241,11 @@ function startInterval(ctx: ExtensionContext) {
 
 async function tick(ctx: ExtensionContext) {
   if (!alive) return;
-  if (!ctx.isIdle()) return;
+
+  if (!ctx.isIdle()) {
+    renderRecapWidget(ctx, { text: null, loading: false });
+    return;
+  }
 
   try {
     await runRecap(ctx, { force: false, overrides: {} });
@@ -178,6 +254,8 @@ async function tick(ctx: ExtensionContext) {
   }
 }
 
+// Retained for future /recap flag support.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function resetInterval(ctx: ExtensionContext) {
   if (currentIntervalMs <= 0) return;
   startInterval(ctx);
@@ -212,6 +290,10 @@ export default function piRecap(pi: ExtensionAPI) {
     lastRecapEntryId = null;
     lastRecapText = null;
     pending = null;
+    recapWidgetTui = null;
+    recapWidgetText = null;
+    stopSpinner();
+    recapTheme = null;
 
     const sm = SettingsManager.create(ctx.cwd);
     const settings = loadSettingsPiRecap(sm);
@@ -240,6 +322,10 @@ export default function piRecap(pi: ExtensionAPI) {
       intervalHandle = null;
     }
     lastRecapText = null;
+    stopSpinner();
+    recapWidgetTui = null;
+    recapWidgetText = null;
+    recapTheme = null;
     ctx.ui.setWidget("pi-recap", undefined);
   });
 
@@ -255,7 +341,7 @@ export default function piRecap(pi: ExtensionAPI) {
 
   pi.registerCommand("recap", {
     description:
-      "Refresh the session recap shown above the editor. Pass provider/model to override, or config to show settings.",
+      "Manage the session recap widget. Subcommands: on, off, model, config, or no args to refresh.",
     // eslint-disable-next-line @typescript-eslint/require-await -- API contract requires Promise<void>
     handler: async (args, ctx) => {
       const trimmed = args.trim();
@@ -266,28 +352,56 @@ export default function piRecap(pi: ExtensionAPI) {
         const config = resolveConfig(ctx, settings, {});
         const provider = config.provider ?? ctx.model?.provider ?? "(none)";
         const model = config.model ?? ctx.model?.id ?? "(none)";
+        const auto = config.intervalMs > 0 ? `on (${config.intervalMs}ms)` : "off";
         ctx.ui.notify(
-          `Recap: provider=${provider} model=${model} effort=${config.effort} interval=${config.intervalMs}ms wordLimit=${config.wordLimit}`,
+          `Recap: auto=${auto} provider=${provider} model=${model} effort=${config.effort} wordLimit=${config.wordLimit}`,
           "info"
         );
         return;
       }
 
-      let overrides: Partial<RecapConfig> = {};
-      if (trimmed) {
-        const parsed = parseRecapModel(trimmed);
-        if (!parsed) {
-          ctx.ui.notify("Usage: /recap provider/model | /recap config | /recap", "warning");
-          return;
-        }
-        saveRecapSettings(parsed.provider, parsed.model);
-        overrides = parsed;
+      if (trimmed === "on") {
+        const sm = SettingsManager.create(ctx.cwd);
+        const settings = loadSettingsPiRecap(sm);
+        const defaultInterval = settings.intervalMs ?? DEFAULTS.intervalMs;
+        saveRecapSettings({ intervalMs: defaultInterval });
+        currentIntervalMs = defaultInterval;
+        startInterval(ctx);
+        ctx.ui.notify(`Recap: auto-refresh enabled (${defaultInterval}ms)`, "info");
+        return;
       }
 
-      void runRecap(ctx, { force: true, overrides }).catch((err: unknown) => {
+      if (trimmed === "off") {
+        saveRecapSettings({ intervalMs: 0 });
+        currentIntervalMs = 0;
+        if (intervalHandle) {
+          clearInterval(intervalHandle);
+          intervalHandle = null;
+        }
+        ctx.ui.notify("Recap: auto-refresh disabled", "info");
+        return;
+      }
+
+      if (trimmed.startsWith("model")) {
+        if (trimmed === "model") {
+          ctx.ui.notify("Usage: /recap model provider/model", "warning");
+          return;
+        }
+        const modelArg = trimmed.slice("model".length).trim();
+        const parsed = parseRecapModel(modelArg);
+        if (!parsed) {
+          ctx.ui.notify("Usage: /recap model provider/model", "warning");
+          return;
+        }
+        saveRecapSettings({ provider: parsed.provider, model: parsed.model });
+        ctx.ui.notify(`Recap: model set to ${parsed.provider}/${parsed.model}`, "info");
+        return;
+      }
+
+      // No subcommand — just force-refresh the recap
+      void runRecap(ctx, { force: true, overrides: {} }).catch((err: unknown) => {
         ctx.ui.notify(`Recap failed: ${errorMessage(err)}`, "error");
       });
-      resetInterval(ctx);
     }
   });
 }

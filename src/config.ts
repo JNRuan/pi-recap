@@ -7,8 +7,8 @@ export const DEFAULTS = {
   provider: undefined as string | undefined,
   model: undefined as string | undefined,
   effort: "low" as string,
-  intervalMs: 300_000 as number,
-  wordLimit: 50 as number
+  intervalMs: 180_000 as number,
+  wordLimit: 100 as number
 };
 
 export interface RecapConfig {
@@ -61,22 +61,30 @@ export function parseRecapModel(raw: string): { provider: string; model: string 
   const slash = trimmed.indexOf("/");
   if (slash === -1 || slash === 0 || slash === trimmed.length - 1) return null;
 
+  // Reject multiple slashes — must be exactly provider/model
+  if (trimmed.includes("/", slash + 1)) return null;
+
   return {
     provider: trimmed.slice(0, slash),
     model: trimmed.slice(slash + 1)
   };
 }
 
-export function saveRecapSettings(provider: string, model: string): void {
-  const path = join(getAgentDir(), "settings.json");
+export function saveRecapSettings(patch: Partial<RecapConfig>): void {
+  const configPath = join(getAgentDir(), "settings.json");
   let settings: Record<string, unknown> = {};
   try {
-    settings = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+    settings = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
   } catch {
     // File doesn't exist or is invalid, start fresh
   }
-  settings.piRecap = { ...(settings.piRecap as Record<string, unknown>), provider, model };
-  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+  const raw = settings.piRecap;
+  const existing: Record<string, unknown> =
+    typeof raw === "object" && raw !== null && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  settings.piRecap = { ...existing, ...patch };
+  writeFileSync(configPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
 }
 
 export function resolveConfig(
