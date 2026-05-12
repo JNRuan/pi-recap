@@ -112,7 +112,7 @@ const buildConversationText = (entries: SessionEntry[]): string => {
 };
 
 const APPROX_CHARS_PER_TOKEN = 4;
-const RECENT_BUDGET_TOKENS = 6_000;
+const RECENT_BUDGET_TOKENS = 10_000;
 
 export function buildRecentConversationText(entries: SessionEntry[]): string {
   const budgetChars = RECENT_BUDGET_TOKENS * APPROX_CHARS_PER_TOKEN;
