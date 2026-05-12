@@ -18,21 +18,34 @@ Avoid restating early background unless it is directly relevant right now.
 One paragraph, no bullets, no markdown headings.
 Do not start with the word "Recap" — that prefix will be added for you.`;
 
-interface RecapAwareContext {
-  ui: {
-    setWidget: ExtensionContext["ui"]["setWidget"];
-  };
+interface RecapWidgetState {
+  text: string | null;
+  loading: boolean;
 }
 
-function setRecap(text: string | undefined, ctx: RecapAwareContext) {
-  if (text === undefined) {
+function renderRecapWidget(ctx: { ui: ExtensionContext["ui"] }, state: RecapWidgetState) {
+  if (state.text === null && !state.loading) {
     ctx.ui.setWidget("pi-recap", undefined);
     return;
   }
 
-  ctx.ui.setWidget("pi-recap", (_tui, theme) => new Text(theme.fg("dim", "Recap: " + text), 0, 0), {
-    placement: "belowEditor"
+  let content: string;
+  if (state.text === null && state.loading) {
+    content = "Generating recap\u2026";
+  } else if (state.text !== null && state.loading) {
+    content = state.text + "  Refreshing\u2026";
+  } else {
+    content = state.text ?? "";
+  }
+
+  const label = "Recap: ";
+  ctx.ui.setWidget("pi-recap", (_tui, theme) => new Text(theme.fg("dim", label + content), 1, 1), {
+    placement: "aboveEditor"
   });
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 interface RunRecapOptions {
@@ -47,6 +60,9 @@ async function runRecap(ctx: ExtensionContext, opts: RunRecapOptions) {
   if (!opts.force && leafId === lastRecapEntryId) return;
 
   if (pending) return;
+
+  // Show loading immediately after guards
+  renderRecapWidget(ctx, { text: lastRecapText, loading: true });
 
   pending = (async () => {
     const branch = ctx.sessionManager.getBranch();
@@ -118,7 +134,7 @@ async function runRecap(ctx: ExtensionContext, opts: RunRecapOptions) {
       return;
     }
 
-    setRecap(text, ctx);
+    lastRecapText = text;
     lastRecapEntryId = leafId;
   })();
 
@@ -126,15 +142,20 @@ async function runRecap(ctx: ExtensionContext, opts: RunRecapOptions) {
     await pending;
   } finally {
     pending = null;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (alive) {
+      renderRecapWidget(ctx, { text: lastRecapText, loading: false });
+    }
   }
 }
 
 // --- closure state (reset on every session_start) ---
 let lastRecapEntryId: string | null = null;
+let lastRecapText: string | null = null;
 let pending: Promise<void> | null = null;
 let alive = false;
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
-let currentIntervalMs = 0; // eslint-disable-line prefer-const -- reassigned in session_start
+let currentIntervalMs = 0;
 
 function startInterval(ctx: ExtensionContext) {
   if (intervalHandle) {
@@ -153,7 +174,7 @@ async function tick(ctx: ExtensionContext) {
   try {
     await runRecap(ctx, { force: false, overrides: {} });
   } catch (err) {
-    ctx.ui.notify(`Recap tick failed: ${(err as Error).message}`, "warning");
+    ctx.ui.notify(`Recap tick failed: ${errorMessage(err)}`, "warning");
   }
 }
 
@@ -183,14 +204,13 @@ export default function piRecap(pi: ExtensionAPI) {
     type: "string"
   });
 
-  let currentIntervalMs = 0;
-
   pi.on("session_start", (_e, ctx) => {
     if (!ctx.hasUI) return;
 
     alive = true;
 
     lastRecapEntryId = null;
+    lastRecapText = null;
     pending = null;
 
     const sm = SettingsManager.create(ctx.cwd);
@@ -204,11 +224,13 @@ export default function piRecap(pi: ExtensionAPI) {
 
     if (_e.reason === "resume" || _e.reason === "fork") {
       queueMicrotask(() => {
-        void runRecap(ctx, { force: true, overrides: {} });
+        void runRecap(ctx, { force: true, overrides: {} }).catch((err: unknown) => {
+          ctx.ui.notify(`Recap failed: ${errorMessage(err)}`, "error");
+        });
       });
     }
 
-    setRecap(undefined, ctx);
+    renderRecapWidget(ctx, { text: null, loading: false });
   });
 
   pi.on("session_shutdown", (_e, ctx) => {
@@ -217,6 +239,7 @@ export default function piRecap(pi: ExtensionAPI) {
       clearInterval(intervalHandle);
       intervalHandle = null;
     }
+    lastRecapText = null;
     ctx.ui.setWidget("pi-recap", undefined);
   });
 
@@ -224,13 +247,15 @@ export default function piRecap(pi: ExtensionAPI) {
     if (!alive) return;
     lastRecapEntryId = null;
     queueMicrotask(() => {
-      void runRecap(ctx, { force: true, overrides: {} });
+      void runRecap(ctx, { force: true, overrides: {} }).catch((err: unknown) => {
+        ctx.ui.notify(`Recap failed: ${errorMessage(err)}`, "error");
+      });
     });
   });
 
   pi.registerCommand("recap", {
     description:
-      "Refresh the session recap shown below the editor. Pass provider/model to override, or config to show settings.",
+      "Refresh the session recap shown above the editor. Pass provider/model to override, or config to show settings.",
     // eslint-disable-next-line @typescript-eslint/require-await -- API contract requires Promise<void>
     handler: async (args, ctx) => {
       const trimmed = args.trim();
@@ -259,7 +284,9 @@ export default function piRecap(pi: ExtensionAPI) {
         overrides = parsed;
       }
 
-      void runRecap(ctx, { force: true, overrides });
+      void runRecap(ctx, { force: true, overrides }).catch((err: unknown) => {
+        ctx.ui.notify(`Recap failed: ${errorMessage(err)}`, "error");
+      });
       resetInterval(ctx);
     }
   });
