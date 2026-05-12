@@ -7,6 +7,11 @@ A pi extension that keeps a running recap of your conversation visible below the
 ## Install
 
 ```bash
+# Direct from git (pin to a release tag)
+pi install git:github.com/JNRuan/pi-recap@v0.3.0
+
+# Or clone and install locally
+gh repo clone JNRuan/pi-recap
 pi install ./pi-recap
 ```
 
