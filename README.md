@@ -8,7 +8,7 @@ A pi extension that keeps a running recap of your conversation visible below the
 
 ```bash
 # Direct from git (pin to a release tag)
-pi install git:github.com/JNRuan/pi-recap@v0.3.0
+pi install git:github.com/JNRuan/pi-recap
 
 # Or clone and install locally
 pi install ./pi-recap
