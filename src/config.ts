@@ -1,6 +1,6 @@
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, renameSync, writeFileSync } from "fs";
 import { join } from "path";
 
 export const DEFAULTS = {
@@ -47,11 +47,11 @@ export function validatePiRecapSettings(raw: unknown): Partial<RecapConfig> {
 }
 
 export function loadSettingsPiRecap(sm: SettingsManager): Partial<RecapConfig> {
-  const global = sm.getGlobalSettings();
-  const project = sm.getProjectSettings();
-  const merged = { ...global, ...project } as Record<string, unknown>;
-  const raw = merged.piRecap;
-  return validatePiRecapSettings(raw);
+  const globalRaw = (sm.getGlobalSettings() as Record<string, unknown>).piRecap;
+  const projectRaw = (sm.getProjectSettings() as Record<string, unknown>).piRecap;
+  const globalCfg = validatePiRecapSettings(globalRaw);
+  const projectCfg = validatePiRecapSettings(projectRaw);
+  return { ...globalCfg, ...projectCfg };
 }
 
 export function parseRecapModel(raw: string): { provider: string; model: string } | null {
@@ -70,21 +70,34 @@ export function parseRecapModel(raw: string): { provider: string; model: string 
   };
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function saveRecapSettings(patch: Partial<RecapConfig>): void {
   const configPath = join(getAgentDir(), "settings.json");
+
   let settings: Record<string, unknown> = {};
   try {
-    settings = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
-  } catch {
-    // File doesn't exist or is invalid, start fresh
+    const raw = readFileSync(configPath, "utf-8");
+    settings = JSON.parse(raw) as Record<string, unknown>;
+  } catch (err) {
+    if (!(err instanceof Error) || (err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error(`pi-recap: refusing to overwrite ${configPath} — ${errorMessage(err)}`);
+    }
+    // ENOENT → start from {}
   }
-  const raw = settings.piRecap;
+
+  const existingRaw = settings.piRecap;
   const existing: Record<string, unknown> =
-    typeof raw === "object" && raw !== null && !Array.isArray(raw)
-      ? (raw as Record<string, unknown>)
+    typeof existingRaw === "object" && existingRaw !== null && !Array.isArray(existingRaw)
+      ? (existingRaw as Record<string, unknown>)
       : {};
   settings.piRecap = { ...existing, ...patch };
-  writeFileSync(configPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+
+  const tmpPath = `${configPath}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+  renameSync(tmpPath, configPath);
 }
 
 export function resolveConfig(
