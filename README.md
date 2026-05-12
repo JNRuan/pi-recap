@@ -48,15 +48,6 @@ Add to `~/.pi/agent/settings.json` (global) or `.pi/settings.json` (per project)
 | `intervalMs` | `180000` (3 min)             | Auto-refresh interval; `0` disables        |
 | `wordLimit`  | `100`                        | Max words in the recap                     |
 
-## CLI Flags
-
-```
---recap-provider <name>     Provider override
---recap-model <id>          Model override
---recap-effort <level>      Reasoning effort (low | medium | high)
---recap-interval <ms>       Auto-refresh interval in ms (0 = disabled)
-```
-
 ## Behavior
 
 - **Loading:** an animated Braille spinner (⠋⠙⠹…) is shown while the recap is being generated.
