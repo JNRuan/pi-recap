@@ -13,11 +13,19 @@ import {
 } from "./config";
 import { buildRecentConversationText } from "./conversation";
 
-const RECAP_SYSTEM_PROMPT = `Focus on what was accomplished — changes made, files edited, decisions reached, and issues resolved.
-Prefer concrete actions over discussion. If a problem was investigated but not fixed, note that.
-Keep it to 100 words or fewer.
-One paragraph, no bullets, no markdown headings.
-Do not start with the word "Recap" — that prefix will be added for you.`;
+const RECAP_SYSTEM_PROMPT = `Summarize what was DONE in this session — not what was discussed.
+
+Include: files changed, decisions made, problems solved, and configuration set up.
+Favour the most recent exchanges — they matter most.
+
+STRICT RULES:
+- Never restate questions, answers, or back-and-forth discussion.
+- Do not describe the conversation flow ("the user asked… then you answered…").
+- Never use phrases like "discussed", "talked about", or "explored" without stating the concrete outcome.
+- If nothing concrete was done, say so in one sentence.
+- Keep it under 100 words.
+- One paragraph, no bullets, no headings.
+- Do not start with "Recap" — that prefix is added for you.`;
 
 interface RecapWidgetState {
   text: string | null;
@@ -327,6 +335,11 @@ export default function piRecap(pi: ExtensionAPI) {
     recapWidgetText = null;
     recapTheme = null;
     ctx.ui.setWidget("pi-recap", undefined);
+  });
+
+  pi.on("turn_start", (_event, ctx) => {
+    // Clear recap immediately when user starts a new turn
+    renderRecapWidget(ctx, { text: null, loading: false });
   });
 
   pi.on("session_compact", (_event, ctx) => {
