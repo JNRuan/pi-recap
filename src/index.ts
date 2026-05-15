@@ -127,6 +127,8 @@ async function runRecap(ctx: ExtensionContext, opts: RunRecapOptions) {
 
   if (pending) return;
 
+  const myGen = generation;
+
   // Show loading immediately after guards
   renderRecapWidget(ctx, { text: lastRecapText, loading: true });
 
@@ -194,7 +196,8 @@ async function runRecap(ctx: ExtensionContext, opts: RunRecapOptions) {
 
     // `alive` may be set to false by `session_shutdown` while we awaited `complete()`.
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!alive) return;
+    if (!alive || myGen !== generation) return;
+    if (ctx.sessionManager.getLeafId() !== leafId) return;
 
     let text = response.content
       .filter((c): c is { type: "text"; text: string } => c.type === "text")
@@ -223,7 +226,7 @@ async function runRecap(ctx: ExtensionContext, opts: RunRecapOptions) {
   } finally {
     pending = null;
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (alive) {
+    if (alive && myGen === generation) {
       renderRecapWidget(ctx, { text: lastRecapText, loading: false });
     }
   }
@@ -236,12 +239,17 @@ let pending: Promise<void> | null = null;
 let alive = false;
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 let currentIntervalMs = 0;
+let generation = 0;
 
 function startInterval(ctx: ExtensionContext) {
-  if (intervalHandle) {
-    clearInterval(intervalHandle);
+  if (!Number.isFinite(currentIntervalMs) || currentIntervalMs <= 0) {
+    if (intervalHandle) {
+      clearInterval(intervalHandle);
+      intervalHandle = null;
+    }
+    return;
   }
-
+  if (intervalHandle) clearInterval(intervalHandle);
   intervalHandle = setInterval(() => {
     void tick(ctx);
   }, currentIntervalMs);
@@ -293,6 +301,7 @@ export default function piRecap(pi: ExtensionAPI) {
   pi.on("session_start", (_e, ctx) => {
     if (!ctx.hasUI) return;
 
+    generation++;
     alive = true;
 
     lastRecapEntryId = null;
@@ -324,6 +333,7 @@ export default function piRecap(pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", (_e, ctx) => {
+    generation++;
     alive = false;
     if (intervalHandle) {
       clearInterval(intervalHandle);
@@ -338,12 +348,14 @@ export default function piRecap(pi: ExtensionAPI) {
   });
 
   pi.on("turn_start", (_event, ctx) => {
+    generation++;
     // Clear recap immediately when user starts a new turn
     renderRecapWidget(ctx, { text: null, loading: false });
   });
 
   pi.on("session_compact", (_event, ctx) => {
     if (!alive) return;
+    generation++;
     lastRecapEntryId = null;
     queueMicrotask(() => {
       void runRecap(ctx, { force: true, overrides: {} }).catch((err: unknown) => {
@@ -376,8 +388,15 @@ export default function piRecap(pi: ExtensionAPI) {
       if (trimmed === "on") {
         const sm = SettingsManager.create(ctx.cwd);
         const settings = loadSettingsPiRecap(sm);
-        const defaultInterval = settings.intervalMs ?? DEFAULTS.intervalMs;
-        saveRecapSettings({ intervalMs: defaultInterval });
+        const stored = settings.intervalMs;
+        const defaultInterval =
+          typeof stored === "number" && stored > 0 ? stored : DEFAULTS.intervalMs;
+        try {
+          saveRecapSettings({ intervalMs: defaultInterval });
+        } catch (err) {
+          ctx.ui.notify(`Recap: ${errorMessage(err)}`, "error");
+          return;
+        }
         currentIntervalMs = defaultInterval;
         startInterval(ctx);
         ctx.ui.notify(`Recap: auto-refresh enabled (${defaultInterval}ms)`, "info");
@@ -385,7 +404,12 @@ export default function piRecap(pi: ExtensionAPI) {
       }
 
       if (trimmed === "off") {
-        saveRecapSettings({ intervalMs: 0 });
+        try {
+          saveRecapSettings({ intervalMs: 0 });
+        } catch (err) {
+          ctx.ui.notify(`Recap: ${errorMessage(err)}`, "error");
+          return;
+        }
         currentIntervalMs = 0;
         if (intervalHandle) {
           clearInterval(intervalHandle);
@@ -406,7 +430,12 @@ export default function piRecap(pi: ExtensionAPI) {
           ctx.ui.notify("Usage: /recap model provider/model", "warning");
           return;
         }
-        saveRecapSettings({ provider: parsed.provider, model: parsed.model });
+        try {
+          saveRecapSettings({ provider: parsed.provider, model: parsed.model });
+        } catch (err) {
+          ctx.ui.notify(`Recap: ${errorMessage(err)}`, "error");
+          return;
+        }
         ctx.ui.notify(`Recap: model set to ${parsed.provider}/${parsed.model}`, "info");
         return;
       }
