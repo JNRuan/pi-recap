@@ -1,6 +1,6 @@
 # pi-recap
 
-A pi extension that displays a running recap of the conversation above the editor.
+A pi extension that displays a running, task-oriented recap of the recent conversation above the editor.
 
 ## Tech stack
 
@@ -11,9 +11,9 @@ A pi extension that displays a running recap of the conversation above the edito
 ## Code organization
 
 ```
-src/index.ts          Extension entry — lifecycle, widget, /recap command, timer
-src/conversation.ts   Plain-text extraction with recency bias and compaction handling
-src/config.ts         Settings validation, CLI flags, arg parsing, config resolution
+src/index.ts          Extension entry — lifecycle, widget, /recap command, idle-delay timer
+src/conversation.ts   Plain-text extraction for recent visible user/assistant messages and compaction summaries
+src/config.ts         Settings validation, defaults, arg parsing, config resolution
 scripts/test-extract.ts Smoke tests for conversation extraction
 ```
 

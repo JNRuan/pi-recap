@@ -13,18 +13,18 @@ import {
 } from "./config";
 import { buildRecentConversationText } from "./conversation";
 
-const RECAP_SYSTEM_PROMPT = `Summarize what was DONE in this session — not what was discussed.
+const RECAP_SYSTEM_PROMPT = `The user stepped away and is coming back. Write a brief "where did I leave off?" recap for a coding-agent session.
 
-Include: files changed, decisions made, problems solved, and configuration set up.
-Favour the most recent exchanges — they matter most.
+Start with the recent high-level task or current state: what the user is building, debugging, reviewing, or deciding. Then include the concrete next step if it is clear.
+
+Focus on the most recent meaningful progress and useful continuity. Prefer task state and decisions over implementation details.
 
 STRICT RULES:
-- Never restate questions, answers, or back-and-forth discussion.
+- Exactly 1 to 3 short sentences, under 50 words total.
+- One paragraph, plain prose: no bullets, headings, or markdown.
+- Do NOT list files changed, commands run, tool calls, commits, or status reports unless essential to understanding the next step.
 - Do not describe the conversation flow ("the user asked… then you answered…").
-- Never use phrases like "discussed", "talked about", or "explored" without stating the concrete outcome.
-- If nothing concrete was done, say so in one sentence.
-- Keep it under 100 words.
-- One paragraph, no bullets, no headings.
+- If nothing concrete happened recently, say so briefly.
 - Do not start with "Recap" — that prefix is added for you.`;
 
 interface RecapWidgetState {
@@ -114,6 +114,22 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+const RECAP_MODEL_UNSET_WARNING =
+  "Recap: provider/model are not set. Run /recap model provider/model to enable recaps.";
+
+function loadRecapConfig(
+  ctx: Pick<ExtensionContext, "cwd">,
+  overrides: Partial<RecapConfig> = {}
+): RecapConfig {
+  const sm = SettingsManager.create(ctx.cwd);
+  const settings = loadSettingsPiRecap(sm);
+  return resolveConfig(settings, overrides);
+}
+
+function hasConfiguredRecapModel(config: RecapConfig): boolean {
+  return config.provider.length > 0 && config.model.length > 0;
+}
+
 interface RunRecapOptions {
   force: boolean;
   overrides: Partial<RecapConfig>;
@@ -127,6 +143,14 @@ async function runRecap(ctx: ExtensionContext, opts: RunRecapOptions) {
 
   if (pending) return;
 
+  const config = loadRecapConfig(ctx, opts.overrides);
+  if (!hasConfiguredRecapModel(config)) {
+    if (opts.force) {
+      ctx.ui.notify(RECAP_MODEL_UNSET_WARNING, "warning");
+    }
+    return;
+  }
+
   const myGen = generation;
 
   // Show loading immediately after guards
@@ -134,34 +158,19 @@ async function runRecap(ctx: ExtensionContext, opts: RunRecapOptions) {
 
   pending = (async () => {
     const branch = ctx.sessionManager.getBranch();
-    const conversationText = buildRecentConversationText(branch);
+    const conversationText = buildRecentConversationText(branch, config.recentMessageLimit);
 
     if (conversationText.trim().length === 0) {
       ctx.ui.notify("Nothing to recap yet", "info");
       return;
     }
 
-    const sm = SettingsManager.create(ctx.cwd);
-    const settings = loadSettingsPiRecap(sm);
-    const config = resolveConfig(ctx, settings, opts.overrides);
-
-    // Use explicit override if configured, otherwise fall back to the active model
-    let model: Model<Api> | undefined;
-    if (config.provider && config.model) {
-      model = ctx.modelRegistry.find(config.provider, config.model);
-      if (!model) {
-        ctx.ui.notify(
-          `Recap: model not found in registry — ${config.provider}/${config.model}`,
-          "warning"
-        );
-        return;
-      }
-    } else {
-      model = ctx.model as Model<Api> | undefined;
-    }
-
+    const model: Model<Api> | undefined = ctx.modelRegistry.find(config.provider, config.model);
     if (!model) {
-      ctx.ui.notify("No active model to generate recap", "warning");
+      ctx.ui.notify(
+        `Recap: model not found in registry — ${config.provider}/${config.model}`,
+        "warning"
+      );
       return;
     }
 
@@ -237,29 +246,37 @@ let lastRecapEntryId: string | null = null;
 let lastRecapText: string | null = null;
 let pending: Promise<void> | null = null;
 let alive = false;
-let intervalHandle: ReturnType<typeof setInterval> | null = null;
+let idleTimerHandle: ReturnType<typeof setTimeout> | null = null;
 let currentIntervalMs = 0;
 let generation = 0;
 
-function startInterval(ctx: ExtensionContext) {
-  if (!Number.isFinite(currentIntervalMs) || currentIntervalMs <= 0) {
-    if (intervalHandle) {
-      clearInterval(intervalHandle);
-      intervalHandle = null;
-    }
-    return;
-  }
-  if (intervalHandle) clearInterval(intervalHandle);
-  intervalHandle = setInterval(() => {
+function clearIdleTimer() {
+  if (!idleTimerHandle) return;
+  clearTimeout(idleTimerHandle);
+  idleTimerHandle = null;
+}
+
+function scheduleIdleRecap(ctx: ExtensionContext) {
+  clearIdleTimer();
+  if (!alive || !Number.isFinite(currentIntervalMs) || currentIntervalMs <= 0) return;
+
+  idleTimerHandle = setTimeout(() => {
+    idleTimerHandle = null;
     void tick(ctx);
   }, currentIntervalMs);
+}
+
+function markActive(ctx: ExtensionContext) {
+  clearIdleTimer();
+  renderRecapWidget(ctx, { text: null, loading: false });
 }
 
 async function tick(ctx: ExtensionContext) {
   if (!alive) return;
 
   if (!ctx.isIdle()) {
-    renderRecapWidget(ctx, { text: null, loading: false });
+    markActive(ctx);
+    scheduleIdleRecap(ctx);
     return;
   }
 
@@ -267,14 +284,11 @@ async function tick(ctx: ExtensionContext) {
     await runRecap(ctx, { force: false, overrides: {} });
   } catch (err) {
     ctx.ui.notify(`Recap tick failed: ${errorMessage(err)}`, "warning");
+  } finally {
+    if (ctx.isIdle()) {
+      scheduleIdleRecap(ctx);
+    }
   }
-}
-
-// Retained for future /recap flag support.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function resetInterval(ctx: ExtensionContext) {
-  if (currentIntervalMs <= 0) return;
-  startInterval(ctx);
 }
 
 export default function piRecap(pi: ExtensionAPI) {
@@ -312,21 +326,30 @@ export default function piRecap(pi: ExtensionAPI) {
     stopSpinner();
     recapTheme = null;
 
-    const sm = SettingsManager.create(ctx.cwd);
-    const settings = loadSettingsPiRecap(sm);
-    const config = resolveConfig(ctx, settings, {});
+    const config = loadRecapConfig(ctx);
+    const hasRecapModel = hasConfiguredRecapModel(config);
     currentIntervalMs = config.intervalMs;
 
-    if (currentIntervalMs > 0) {
-      startInterval(ctx);
+    if (!hasRecapModel) {
+      ctx.ui.notify(RECAP_MODEL_UNSET_WARNING, "warning");
     }
 
-    if (_e.reason === "resume" || _e.reason === "fork") {
+    const shouldRunInitialRecap = hasRecapModel && (_e.reason === "resume" || _e.reason === "fork");
+
+    if (shouldRunInitialRecap) {
       queueMicrotask(() => {
-        void runRecap(ctx, { force: true, overrides: {} }).catch((err: unknown) => {
-          ctx.ui.notify(`Recap failed: ${errorMessage(err)}`, "error");
-        });
+        void runRecap(ctx, { force: true, overrides: {} })
+          .catch((err: unknown) => {
+            ctx.ui.notify(`Recap failed: ${errorMessage(err)}`, "error");
+          })
+          .finally(() => {
+            if (ctx.isIdle()) {
+              scheduleIdleRecap(ctx);
+            }
+          });
       });
+    } else {
+      scheduleIdleRecap(ctx);
     }
 
     renderRecapWidget(ctx, { text: null, loading: false });
@@ -335,10 +358,7 @@ export default function piRecap(pi: ExtensionAPI) {
   pi.on("session_shutdown", (_e, ctx) => {
     generation++;
     alive = false;
-    if (intervalHandle) {
-      clearInterval(intervalHandle);
-      intervalHandle = null;
-    }
+    clearIdleTimer();
     lastRecapText = null;
     stopSpinner();
     recapWidgetTui = null;
@@ -347,47 +367,61 @@ export default function piRecap(pi: ExtensionAPI) {
     ctx.ui.setWidget("pi-recap", undefined);
   });
 
+  pi.on("input", (_event, ctx) => {
+    if (!alive) return;
+    generation++;
+    markActive(ctx);
+  });
+
   pi.on("turn_start", (_event, ctx) => {
     generation++;
-    // Clear recap immediately when user starts a new turn
-    renderRecapWidget(ctx, { text: null, loading: false });
+    markActive(ctx);
+  });
+
+  pi.on("agent_end", (_event, ctx) => {
+    if (!alive) return;
+    scheduleIdleRecap(ctx);
   });
 
   pi.on("session_compact", (_event, ctx) => {
     if (!alive) return;
     generation++;
     lastRecapEntryId = null;
+    clearIdleTimer();
     queueMicrotask(() => {
-      void runRecap(ctx, { force: true, overrides: {} }).catch((err: unknown) => {
-        ctx.ui.notify(`Recap failed: ${errorMessage(err)}`, "error");
-      });
+      void runRecap(ctx, { force: true, overrides: {} })
+        .catch((err: unknown) => {
+          ctx.ui.notify(`Recap failed: ${errorMessage(err)}`, "error");
+        })
+        .finally(() => {
+          if (ctx.isIdle()) {
+            scheduleIdleRecap(ctx);
+          }
+        });
     });
   });
 
   pi.registerCommand("recap", {
     description:
-      "Manage the session recap widget. Subcommands: on, off, model, config, or no args to refresh.",
+      "Manage the session recap widget. Subcommands: on, off, model, messages, config, or no args to refresh.",
     // eslint-disable-next-line @typescript-eslint/require-await -- API contract requires Promise<void>
     handler: async (args, ctx) => {
       const trimmed = args.trim();
 
       if (trimmed === "config") {
-        const sm = SettingsManager.create(ctx.cwd);
-        const settings = loadSettingsPiRecap(sm);
-        const config = resolveConfig(ctx, settings, {});
-        const provider = config.provider ?? ctx.model?.provider ?? "(none)";
-        const model = config.model ?? ctx.model?.id ?? "(none)";
+        const config = loadRecapConfig(ctx);
+        const provider = config.provider || "(unset)";
+        const model = config.model || "(unset)";
         const auto = config.intervalMs > 0 ? `on (${config.intervalMs}ms)` : "off";
         ctx.ui.notify(
-          `Recap: auto=${auto} provider=${provider} model=${model} effort=${config.effort} wordLimit=${config.wordLimit}`,
+          `Recap: auto=${auto} provider=${provider} model=${model} effort=${config.effort} wordLimit=${config.wordLimit} recentMessageLimit=${config.recentMessageLimit}`,
           "info"
         );
         return;
       }
 
       if (trimmed === "on") {
-        const sm = SettingsManager.create(ctx.cwd);
-        const settings = loadSettingsPiRecap(sm);
+        const settings = loadSettingsPiRecap(SettingsManager.create(ctx.cwd));
         const stored = settings.intervalMs;
         const defaultInterval =
           typeof stored === "number" && stored > 0 ? stored : DEFAULTS.intervalMs;
@@ -398,7 +432,7 @@ export default function piRecap(pi: ExtensionAPI) {
           return;
         }
         currentIntervalMs = defaultInterval;
-        startInterval(ctx);
+        scheduleIdleRecap(ctx);
         ctx.ui.notify(`Recap: auto-refresh enabled (${defaultInterval}ms)`, "info");
         return;
       }
@@ -411,10 +445,7 @@ export default function piRecap(pi: ExtensionAPI) {
           return;
         }
         currentIntervalMs = 0;
-        if (intervalHandle) {
-          clearInterval(intervalHandle);
-          intervalHandle = null;
-        }
+        clearIdleTimer();
         ctx.ui.notify("Recap: auto-refresh disabled", "info");
         return;
       }
@@ -436,14 +467,40 @@ export default function piRecap(pi: ExtensionAPI) {
           ctx.ui.notify(`Recap: ${errorMessage(err)}`, "error");
           return;
         }
+        scheduleIdleRecap(ctx);
         ctx.ui.notify(`Recap: model set to ${parsed.provider}/${parsed.model}`, "info");
         return;
       }
 
+      if (trimmed.startsWith("messages") || trimmed.startsWith("recent")) {
+        const subcommand = trimmed.startsWith("messages") ? "messages" : "recent";
+        const limitArg = trimmed.slice(subcommand.length).trim();
+        const recentMessageLimit = Number(limitArg);
+        if (!Number.isInteger(recentMessageLimit) || recentMessageLimit <= 0) {
+          ctx.ui.notify(`Usage: /recap ${subcommand} 20`, "warning");
+          return;
+        }
+        try {
+          saveRecapSettings({ recentMessageLimit });
+        } catch (err) {
+          ctx.ui.notify(`Recap: ${errorMessage(err)}`, "error");
+          return;
+        }
+        ctx.ui.notify(`Recap: recent message limit set to ${recentMessageLimit}`, "info");
+        return;
+      }
+
       // No subcommand — just force-refresh the recap
-      void runRecap(ctx, { force: true, overrides: {} }).catch((err: unknown) => {
-        ctx.ui.notify(`Recap failed: ${errorMessage(err)}`, "error");
-      });
+      clearIdleTimer();
+      void runRecap(ctx, { force: true, overrides: {} })
+        .catch((err: unknown) => {
+          ctx.ui.notify(`Recap failed: ${errorMessage(err)}`, "error");
+        })
+        .finally(() => {
+          if (ctx.isIdle()) {
+            scheduleIdleRecap(ctx);
+          }
+        });
     }
   });
 }

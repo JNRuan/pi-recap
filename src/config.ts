@@ -3,21 +3,23 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readFileSync, renameSync, writeFileSync } from "fs";
 import { join } from "path";
 
-export const DEFAULTS = {
-  provider: undefined as string | undefined,
-  model: undefined as string | undefined,
-  effort: "low" as string,
-  intervalMs: 180_000 as number,
-  wordLimit: 100 as number
-};
-
 export interface RecapConfig {
-  provider: string | undefined;
-  model: string | undefined;
+  provider: string;
+  model: string;
   effort: string;
   intervalMs: number;
   wordLimit: number;
+  recentMessageLimit: number;
 }
+
+export const DEFAULTS: RecapConfig = {
+  provider: "",
+  model: "",
+  effort: "low",
+  intervalMs: 300_000,
+  wordLimit: 100,
+  recentMessageLimit: 20
+};
 
 const VALID_EFFORTS = new Set(["low", "medium", "high"]);
 
@@ -28,10 +30,10 @@ export function validatePiRecapSettings(raw: unknown): Partial<RecapConfig> {
   const result: Partial<RecapConfig> = {};
 
   if (typeof obj.provider === "string") {
-    result.provider = obj.provider;
+    result.provider = obj.provider.trim();
   }
   if (typeof obj.model === "string") {
-    result.model = obj.model;
+    result.model = obj.model.trim();
   }
   if (typeof obj.effort === "string" && VALID_EFFORTS.has(obj.effort)) {
     result.effort = obj.effort;
@@ -41,6 +43,13 @@ export function validatePiRecapSettings(raw: unknown): Partial<RecapConfig> {
   }
   if (typeof obj.wordLimit === "number" && Number.isInteger(obj.wordLimit) && obj.wordLimit > 0) {
     result.wordLimit = obj.wordLimit;
+  }
+  if (
+    typeof obj.recentMessageLimit === "number" &&
+    Number.isInteger(obj.recentMessageLimit) &&
+    obj.recentMessageLimit > 0
+  ) {
+    result.recentMessageLimit = obj.recentMessageLimit;
   }
 
   return result;
@@ -64,10 +73,11 @@ export function parseRecapModel(raw: string): { provider: string; model: string 
   // Reject multiple slashes — must be exactly provider/model
   if (trimmed.includes("/", slash + 1)) return null;
 
-  return {
-    provider: trimmed.slice(0, slash),
-    model: trimmed.slice(slash + 1)
-  };
+  const provider = trimmed.slice(0, slash).trim();
+  const model = trimmed.slice(slash + 1).trim();
+  if (!provider || !model) return null;
+
+  return { provider, model };
 }
 
 function errorMessage(err: unknown): string {
@@ -101,9 +111,6 @@ export function saveRecapSettings(patch: Partial<RecapConfig>): void {
 }
 
 export function resolveConfig(
-  ctx: {
-    model: { provider: string; id: string } | undefined;
-  },
   settings: Partial<RecapConfig>,
   overrides: Partial<RecapConfig>
 ): RecapConfig {
@@ -112,6 +119,8 @@ export function resolveConfig(
     model: overrides.model ?? settings.model ?? DEFAULTS.model,
     effort: overrides.effort ?? settings.effort ?? DEFAULTS.effort,
     intervalMs: overrides.intervalMs ?? settings.intervalMs ?? DEFAULTS.intervalMs,
-    wordLimit: overrides.wordLimit ?? settings.wordLimit ?? DEFAULTS.wordLimit
+    wordLimit: overrides.wordLimit ?? settings.wordLimit ?? DEFAULTS.wordLimit,
+    recentMessageLimit:
+      overrides.recentMessageLimit ?? settings.recentMessageLimit ?? DEFAULTS.recentMessageLimit
   };
 }

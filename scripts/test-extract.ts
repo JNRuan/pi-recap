@@ -9,7 +9,7 @@ interface FakeEntry {
   summary?: string;
 }
 
-// Case 1: 50 turns of plain user/assistant → recent-only survives
+// Case 1: 50 turns of plain user/assistant → last 20 visible messages survive
 const case1: FakeEntry[] = [];
 for (let i = 0; i < 50; i++) {
   case1.push({
@@ -35,7 +35,7 @@ for (let i = 0; i < 50; i++) {
   });
 }
 
-console.log("=== CASE 1: 50 turns (recent-only) ===");
+console.log("=== CASE 1: 50 turns (last 20 visible messages) ===");
 const result1 = buildRecentConversationText(case1);
 console.log(result1);
 console.log(`\nLength: ${result1.length} chars`);
@@ -83,7 +83,7 @@ console.log("\n\n=== CASE 2: Compaction + recent messages ===");
 const result2 = buildRecentConversationText(case2);
 console.log(result2);
 
-// Case 3: Single oversized message → kept on its own, exceeds budget
+// Case 3: Single oversized message → kept because recency is message-count based
 const case3: FakeEntry[] = [
   {
     type: "message",
@@ -102,4 +102,4 @@ const case3: FakeEntry[] = [
 console.log("\n\n=== CASE 3: Oversized single message ===");
 const result3 = buildRecentConversationText(case3);
 console.log(result3);
-console.log(`\nLength: ${result3.length} chars (exceeds 24000 budget)`);
+console.log(`\nLength: ${result3.length} chars`);
