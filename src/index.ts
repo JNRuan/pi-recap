@@ -7,6 +7,7 @@ import {
   type RecapConfig,
   DEFAULTS,
   loadSettingsPiRecap,
+  parseRecapIntervalSeconds,
   parseRecapModel,
   resolveConfig,
   saveRecapSettings
@@ -247,7 +248,7 @@ let lastRecapText: string | null = null;
 let pending: Promise<void> | null = null;
 let alive = false;
 let idleTimerHandle: ReturnType<typeof setTimeout> | null = null;
-let currentIntervalMs = 0;
+let currentIntervalSeconds = 0;
 let generation = 0;
 
 function clearIdleTimer() {
@@ -258,12 +259,12 @@ function clearIdleTimer() {
 
 function scheduleIdleRecap(ctx: ExtensionContext) {
   clearIdleTimer();
-  if (!alive || !Number.isFinite(currentIntervalMs) || currentIntervalMs <= 0) return;
+  if (!alive || !Number.isFinite(currentIntervalSeconds) || currentIntervalSeconds <= 0) return;
 
   idleTimerHandle = setTimeout(() => {
     idleTimerHandle = null;
     void tick(ctx);
-  }, currentIntervalMs);
+  }, currentIntervalSeconds * 1_000);
 }
 
 function markActive(ctx: ExtensionContext) {
@@ -308,7 +309,7 @@ export default function piRecap(pi: ExtensionAPI) {
   });
 
   pi.registerFlag("recap-interval", {
-    description: "Auto-refresh interval in ms (0 = disabled)",
+    description: "Auto-refresh idle delay in seconds (0 = disabled)",
     type: "string"
   });
 
@@ -328,7 +329,7 @@ export default function piRecap(pi: ExtensionAPI) {
 
     const config = loadRecapConfig(ctx);
     const hasRecapModel = hasConfiguredRecapModel(config);
-    currentIntervalMs = config.intervalMs;
+    currentIntervalSeconds = config.intervalSeconds;
 
     if (!hasRecapModel) {
       ctx.ui.notify(RECAP_MODEL_UNSET_WARNING, "warning");
@@ -403,7 +404,7 @@ export default function piRecap(pi: ExtensionAPI) {
 
   pi.registerCommand("recap", {
     description:
-      "Manage the session recap widget. Subcommands: on, off, model, messages, config, or no args to refresh.",
+      "Manage the session recap widget. Subcommands: on, off, model, interval, messages, config, or no args to refresh.",
     // eslint-disable-next-line @typescript-eslint/require-await -- API contract requires Promise<void>
     handler: async (args, ctx) => {
       const trimmed = args.trim();
@@ -412,7 +413,7 @@ export default function piRecap(pi: ExtensionAPI) {
         const config = loadRecapConfig(ctx);
         const provider = config.provider || "(unset)";
         const model = config.model || "(unset)";
-        const auto = config.intervalMs > 0 ? `on (${config.intervalMs}ms)` : "off";
+        const auto = config.intervalSeconds > 0 ? `on (${config.intervalSeconds}s)` : "off";
         ctx.ui.notify(
           `Recap: auto=${auto} provider=${provider} model=${model} effort=${config.effort} wordLimit=${config.wordLimit} recentMessageLimit=${config.recentMessageLimit}`,
           "info"
@@ -422,29 +423,29 @@ export default function piRecap(pi: ExtensionAPI) {
 
       if (trimmed === "on") {
         const settings = loadSettingsPiRecap(SettingsManager.create(ctx.cwd));
-        const stored = settings.intervalMs;
-        const defaultInterval =
-          typeof stored === "number" && stored > 0 ? stored : DEFAULTS.intervalMs;
+        const stored = settings.intervalSeconds;
+        const defaultIntervalSeconds =
+          typeof stored === "number" && stored > 0 ? stored : DEFAULTS.intervalSeconds;
         try {
-          saveRecapSettings({ intervalMs: defaultInterval });
+          saveRecapSettings({ intervalSeconds: defaultIntervalSeconds });
         } catch (err) {
           ctx.ui.notify(`Recap: ${errorMessage(err)}`, "error");
           return;
         }
-        currentIntervalMs = defaultInterval;
+        currentIntervalSeconds = defaultIntervalSeconds;
         scheduleIdleRecap(ctx);
-        ctx.ui.notify(`Recap: auto-refresh enabled (${defaultInterval}ms)`, "info");
+        ctx.ui.notify(`Recap: auto-refresh enabled (${defaultIntervalSeconds}s)`, "info");
         return;
       }
 
       if (trimmed === "off") {
         try {
-          saveRecapSettings({ intervalMs: 0 });
+          saveRecapSettings({ intervalSeconds: 0 });
         } catch (err) {
           ctx.ui.notify(`Recap: ${errorMessage(err)}`, "error");
           return;
         }
-        currentIntervalMs = 0;
+        currentIntervalSeconds = 0;
         clearIdleTimer();
         ctx.ui.notify("Recap: auto-refresh disabled", "info");
         return;
@@ -469,6 +470,30 @@ export default function piRecap(pi: ExtensionAPI) {
         }
         scheduleIdleRecap(ctx);
         ctx.ui.notify(`Recap: model set to ${parsed.provider}/${parsed.model}`, "info");
+        return;
+      }
+
+      if (trimmed.startsWith("interval")) {
+        const intervalArg = trimmed.slice("interval".length).trim();
+        const intervalSeconds = parseRecapIntervalSeconds(intervalArg);
+        if (intervalSeconds === null) {
+          ctx.ui.notify("Usage: /recap interval 300", "warning");
+          return;
+        }
+        try {
+          saveRecapSettings({ intervalSeconds });
+        } catch (err) {
+          ctx.ui.notify(`Recap: ${errorMessage(err)}`, "error");
+          return;
+        }
+        currentIntervalSeconds = intervalSeconds;
+        if (intervalSeconds > 0) {
+          scheduleIdleRecap(ctx);
+          ctx.ui.notify(`Recap: idle delay set to ${intervalSeconds}s`, "info");
+        } else {
+          clearIdleTimer();
+          ctx.ui.notify("Recap: auto-refresh disabled", "info");
+        }
         return;
       }
 

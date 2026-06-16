@@ -7,7 +7,7 @@ export interface RecapConfig {
   provider: string;
   model: string;
   effort: string;
-  intervalMs: number;
+  intervalSeconds: number;
   wordLimit: number;
   recentMessageLimit: number;
 }
@@ -16,7 +16,7 @@ export const DEFAULTS: RecapConfig = {
   provider: "",
   model: "",
   effort: "low",
-  intervalMs: 300_000,
+  intervalSeconds: 300,
   wordLimit: 100,
   recentMessageLimit: 20
 };
@@ -38,8 +38,12 @@ export function validatePiRecapSettings(raw: unknown): Partial<RecapConfig> {
   if (typeof obj.effort === "string" && VALID_EFFORTS.has(obj.effort)) {
     result.effort = obj.effort;
   }
-  if (typeof obj.intervalMs === "number" && obj.intervalMs >= 0) {
-    result.intervalMs = obj.intervalMs;
+  if (
+    typeof obj.intervalSeconds === "number" &&
+    Number.isInteger(obj.intervalSeconds) &&
+    obj.intervalSeconds >= 0
+  ) {
+    result.intervalSeconds = obj.intervalSeconds;
   }
   if (typeof obj.wordLimit === "number" && Number.isInteger(obj.wordLimit) && obj.wordLimit > 0) {
     result.wordLimit = obj.wordLimit;
@@ -80,6 +84,14 @@ export function parseRecapModel(raw: string): { provider: string; model: string 
   return { provider, model };
 }
 
+export function parseRecapIntervalSeconds(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+
+  const seconds = Number(trimmed);
+  return Number.isSafeInteger(seconds) ? seconds : null;
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -118,7 +130,8 @@ export function resolveConfig(
     provider: overrides.provider ?? settings.provider ?? DEFAULTS.provider,
     model: overrides.model ?? settings.model ?? DEFAULTS.model,
     effort: overrides.effort ?? settings.effort ?? DEFAULTS.effort,
-    intervalMs: overrides.intervalMs ?? settings.intervalMs ?? DEFAULTS.intervalMs,
+    intervalSeconds:
+      overrides.intervalSeconds ?? settings.intervalSeconds ?? DEFAULTS.intervalSeconds,
     wordLimit: overrides.wordLimit ?? settings.wordLimit ?? DEFAULTS.wordLimit,
     recentMessageLimit:
       overrides.recentMessageLimit ?? settings.recentMessageLimit ?? DEFAULTS.recentMessageLimit
