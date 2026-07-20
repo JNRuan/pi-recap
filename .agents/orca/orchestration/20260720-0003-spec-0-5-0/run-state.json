@@ -117,6 +117,24 @@
       "assignment": "tasks/04-index-rewrite-assignment.md",
       "report": "tasks/04-index-rewrite-report.md",
       "status": "completed"
+    },
+    {
+      "seq": "05",
+      "slug": "finish",
+      "task_id": "task_d624f9efefa9",
+      "complexity": "medium",
+      "builder": "codex gpt-5.6-sol high (nono --allow RUNDIR, danger-full-access)",
+      "worktree_id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-05-finish",
+      "worktree_path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-05-finish",
+      "branch": "20260720-0003-spec-0-5-0-05-finish",
+      "starting_commit": "175039e14250f1f1b685a755601e8753eae28d84",
+      "terminal": "term_2d943240-4a05-4f44-a3ff-45903c303c57",
+      "dispatch": "ctx_0679fa8062b9",
+      "superseded_dispatches": [],
+      "cycles": 0,
+      "assignment": "tasks/05-finish-assignment.md",
+      "report": "tasks/05-finish-report.md",
+      "status": "dispatched"
     }
   ],
   "critics": [
