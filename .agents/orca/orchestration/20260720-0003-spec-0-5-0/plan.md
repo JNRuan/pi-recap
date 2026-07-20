@@ -197,6 +197,8 @@ export function buildRecapSystemPrompt(wordLimit: number): string; // spec "Revi
 export function normalizeRecapText(raw: string): string;           // trim; strip /^Recap:\s*/i; trim
 export function enforceWordLimit(text: string, wordLimit: number): string; // sentence-aware, U+2026
 export interface PreflightDeps { registry: {...structural...}; notify(...): void; saveConfig(...): void; }
+// RE-PIN (C5 finding): the registry's refresh() is async at 0.80.10 — structural type is
+// refresh(): Promise<void>, and preflight gate 2 awaits it before find().
 export type PreflightResult =
   | { ok: true; model: Model<Api>; auth: ResolvedAuth; effectiveLevel: ModelThinkingLevel }
   | { ok: false };
@@ -215,7 +217,8 @@ Gate order/notification matrix and the enforceWordLimit algorithm are fixed in
 ```ts
 export async function openRecapSettingsMenu(deps: {
   ui: ExtensionContext["ui"];
-  registry: { refresh(): void; find(...): Model<Api> | undefined; getAvailable(): Model<Api>[] };
+  registry: { refresh(): Promise<void>; find(...): Model<Api> | undefined; getAvailable(): Model<Api>[] };
+  // RE-PIN (C5 finding): refresh() is async at 0.80.10 — menu entry and Save step 1 await it.
   loadConfig(): RecapConfig;
   saveConfig(config: RecapConfig): void;
   onSaved(config: RecapConfig): void;

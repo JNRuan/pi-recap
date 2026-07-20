@@ -48,9 +48,9 @@
       "worktree_path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-01-baseline-config-commands",
       "branch": "20260720-0003-spec-0-5-0-01-baseline-config-commands",
       "starting_commit": "387e19b92201f436037aa4431ae90fa661af59f5",
-      "terminal": "term_f0541028-d110-468c-8c1d-deef0d891fd5",
-      "dispatch": "ctx_b2a39271e00a",
-      "superseded_dispatches": [],
+      "terminal": "term_1f1cce32-0ecc-465c-a654-a3aa2f03836c",
+      "dispatch": "ctx_75cfec1f2dd9",
+      "superseded_dispatches": ["ctx_b2a39271e00a"],
       "cycles": 0,
       "assignment": "tasks/01-baseline-config-commands-assignment.md",
       "report": "tasks/01-baseline-config-commands-report.md",
@@ -58,7 +58,10 @@
         "term_9ff6c95b-34c9-4c32-874a-3d7a7149c030",
         "term_8f94b5f8-1049-4247-8a74-b11e0a39124f"
       ],
-      "status": "dispatched"
+      "status": "dispatched",
+      "incidents": [
+        "first builder terminal (term_f0541028) could not read RUNDIR: nono grants only cover the terminal cwd worktree; --add-dir does not inform nono. Rebooted with: nono run --profile my-codex --allow-cwd --allow <RUNDIR> -- codex ... All future Codex workers in task worktrees boot this way."
+      ]
     }
   ],
   "critics": [
