@@ -283,5 +283,10 @@
     }
   },
   "adversarial_qa_reason": "run complexity policy (medium)",
-  "pr_url": "https://github.com/JNRuan/pi-recap/pull/4"
+  "pr_url": "https://github.com/JNRuan/pi-recap/pull/4",
+  "followup": {
+    "pr_url": "https://github.com/JNRuan/pi-recap/pull/5",
+    "branch": "settings-menu-native-ui",
+    "note": "PR #4 merged before task 08 landed; menu rework cherry-picked onto origin/main (ba6d549 assignment, a6f01a7 impl, 08e4961 record) plus coordinator version bump to 0.5.1 (trivial-fix exception, logged)"
+  }
 }
