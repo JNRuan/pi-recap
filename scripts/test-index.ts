@@ -7,7 +7,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildNormalizedPiRecap, loadRecapConfig, type RecapConfig } from "../src/config";
@@ -204,6 +204,7 @@ interface IndexHarness {
   queueResponse(text: string): void;
   deferNextCompletion(): DeferredCompletion;
   setMenuBehavior(behavior: ((deps: RecapSettingsMenuDeps) => void) | null): void;
+  setAgentDirMode(mode: number): void;
   start(reason?: "startup" | "reload" | "new" | "resume" | "fork"): Promise<void>;
   emit(event: string): Promise<void>;
   emitWithoutWaiting(event: string): Promise<void>;
@@ -336,6 +337,9 @@ function createHarness(options: HarnessOptions = {}): IndexHarness {
     setMenuBehavior: (behavior) => {
       menuBehavior = behavior;
     },
+    setAgentDirMode: (mode) => {
+      chmodSync(agentDir, mode);
+    },
     start: async (reason = "new") => {
       await pi.emit("session_start", { type: "session_start", reason }, context);
       await runtime.waitForBackgroundTasks();
@@ -354,6 +358,7 @@ function createHarness(options: HarnessOptions = {}): IndexHarness {
           JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"))
       }),
     cleanup: () => {
+      chmodSync(agentDir, 0o700);
       rmSync(agentDir, { recursive: true, force: true });
       const index = temporaryDirectories.indexOf(agentDir);
       if (index >= 0) temporaryDirectories.splice(index, 1);
@@ -758,6 +763,92 @@ try {
     harness.cleanup();
   }
 
+  // A promptly rejected refresh also degrades to cached model information for typed setters.
+  {
+    const model = makeModel();
+    const harness = createHarness({ models: [model] });
+    harness.registry.refreshImplementation = () => Promise.reject(new Error("provider offline"));
+    await harness.start();
+
+    await harness.command(`model ${model.provider}/${model.id}`);
+    assert.deepEqual(harness.readConfig().recapModel, { provider: model.provider, id: model.id });
+    await harness.command("thinking high");
+    assert.equal(harness.readConfig().thinkingLevel, "high");
+    assert.equal(
+      harness.ui.notices.filter((notice) => notice.message.includes("refresh failed")).length,
+      2
+    );
+    harness.cleanup();
+  }
+
+  // A failed clamp save is reported without aborting the recap that discovered the clamp.
+  {
+    const model = makeModel({ provider: "limited" }, ["off", "low", "medium"]);
+    const harness = createHarness({
+      config: {
+        ...DEFAULT_CONFIG,
+        recapModel: { provider: model.provider, id: model.id },
+        thinkingLevel: "max",
+        autoRecapEnabled: false
+      },
+      models: [model]
+    });
+    await harness.start();
+    clearRecordedUI(harness);
+    harness.setAgentDirMode(0o555);
+    harness.queueResponse("Recap survives a failed clamp save.");
+
+    await harness.command("");
+    const saveFailure = harness.ui.notices.find((notice) =>
+      notice.message.startsWith("Recap: could not save the effective Recap Thinking Level:")
+    );
+    assert.equal(saveFailure?.type, "error");
+    assert.equal(harness.completionCount(), 1);
+    assert.equal(harness.runtime.inspect().lastRecapText, "Recap survives a failed clamp save.");
+    harness.cleanup();
+  }
+
+  // A thinking-level change during an older preflight rejects that preflight's stale clamp.
+  {
+    const model = makeModel({ provider: "limited" }, ["off", "low", "medium"]);
+    const harness = createHarness({
+      config: {
+        ...DEFAULT_CONFIG,
+        recapModel: { provider: model.provider, id: model.id },
+        thinkingLevel: "max",
+        autoRecapEnabled: false
+      },
+      models: [model]
+    });
+    await harness.start();
+
+    let releaseRefresh = (): void => undefined;
+    const refreshStarted = new Promise<void>((resolveStarted) => {
+      harness.registry.refreshImplementation = () =>
+        new Promise<void>((resolveRefresh) => {
+          releaseRefresh = resolveRefresh;
+          resolveStarted();
+        });
+    });
+    const recap = harness.command("");
+    await refreshStarted;
+    harness.registry.refreshImplementation = null;
+    await harness.command("thinking low");
+    assert.equal(harness.readConfig().thinkingLevel, "low");
+    clearRecordedUI(harness);
+
+    releaseRefresh();
+    await recap;
+    assert.equal(harness.readConfig().thinkingLevel, "low");
+    assert.equal(
+      harness.ui.notices.some((notice) =>
+        notice.message.includes("Recap Thinking Level clamped to medium")
+      ),
+      false
+    );
+    harness.cleanup();
+  }
+
   // Activity during generation invalidates the result and the completion cannot re-render
   // the widget that input deliberately cleared.
   {
@@ -786,8 +877,20 @@ try {
     harness.cleanup();
   }
 
-  // Shutdown clears lifecycle state and timers, and an in-flight completion cannot resurrect
-  // either state or UI. Later lifecycle events remain no-ops.
+  // Shutdown cancels an armed idle timer without an intervening manual recap.
+  {
+    const harness = createHarness({
+      config: { ...DEFAULT_CONFIG, idleDelaySeconds: 1 }
+    });
+    await harness.start();
+    assert.equal(harness.timers.count(), 1);
+    await harness.emitWithoutWaiting("session_shutdown");
+    assert.equal(harness.timers.count(), 0);
+    harness.cleanup();
+  }
+
+  // An in-flight completion cannot resurrect lifecycle state or UI after shutdown. Later
+  // lifecycle events remain no-ops.
   {
     const model = makeModel();
     const harness = createHarness({

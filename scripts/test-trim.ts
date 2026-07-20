@@ -5,9 +5,15 @@ assert.equal(normalizeRecapText("  Recap:   Work continues.  "), "Work continues
 assert.equal(normalizeRecapText("\nRECAP:\n\tDone.\n"), "Done.");
 assert.equal(normalizeRecapText("  Ordinary text  "), "Ordinary text");
 assert.equal(normalizeRecapText("First line\nsecond\tthird"), "First line second third");
-const escaped = normalizeRecapText("\x1b[31mDanger\x1b[0m\x9b");
-assert.equal(escaped, "[31mDanger[0m");
-assert.equal(/[\x00-\x1f\x7f\x9b]/.test(escaped), false);
+assert.equal(normalizeRecapText("first\rsecond\vthird\ffourth"), "first second third fourth");
+const escaped = normalizeRecapText("\x1b[31malert\x1b[0m");
+assert.equal(escaped, "alert");
+assert.equal(/[\x00-\x1f\x7f-\x9f]/.test(escaped), false);
+assert.equal(normalizeRecapText("\x1b]0;window title\x07alert"), "alert");
+for (const control of ["\u0090", "\u009c", "\u009d", "\u009f", "\u2028", "\u2029"]) {
+  assert.equal(normalizeRecapText(control), "");
+}
+assert.equal(normalizeRecapText("first\u2028second\u2029third"), "first second third");
 assert.equal(normalizeRecapText("  "), "");
 
 assert.equal(

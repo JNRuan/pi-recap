@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -219,6 +219,26 @@ for (const [name, original] of [
   } finally {
     rmSync(corruptAgentDir, { recursive: true, force: true });
   }
+}
+
+const renameFailureAgentDir = mkdtempSync(join(tmpdir(), "pi-recap-config-rename-failure-"));
+const originalRenameSync = fs.renameSync;
+try {
+  writeFileSync(join(renameFailureAgentDir, "settings.json"), "{}\n", "utf8");
+  fs.renameSync = () => {
+    throw new Error("rename failed");
+  };
+
+  assert.throws(() => {
+    saveRecapConfig(DEFAULT_CONFIG, renameFailureAgentDir);
+  }, /rename failed/);
+  assert.deepEqual(
+    readdirSync(renameFailureAgentDir).filter((name) => name.endsWith(".tmp")),
+    []
+  );
+} finally {
+  fs.renameSync = originalRenameSync;
+  rmSync(renameFailureAgentDir, { recursive: true, force: true });
 }
 
 console.log("test-config: passed");

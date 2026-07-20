@@ -136,6 +136,34 @@ assert.deepEqual(timeoutHarness.notifications, [
   }
 ]);
 
+const rejectedRefreshHarness = makePreflightHarness({
+  model: makeModel(),
+  refreshImplementation: () => Promise.reject(new Error("provider offline"))
+});
+const afterRefreshRejection = await preflightRecap(
+  BASE_CONFIG,
+  "manual",
+  rejectedRefreshHarness.deps
+);
+assert.ok(afterRefreshRejection.ok);
+assert.deepEqual(rejectedRefreshHarness.notifications, [
+  {
+    message:
+      "Recap: model availability refresh failed (provider offline); using cached model information.",
+    type: "warning"
+  }
+]);
+
+const reasoningDisabledHarness = makePreflightHarness({
+  model: makeModel({ reasoning: false })
+});
+const reasoningDisabled = await preflightRecap(
+  { ...BASE_CONFIG, thinkingLevel: "high" },
+  "manual",
+  reasoningDisabledHarness.deps
+);
+assert.equal(reasoningDisabled.ok && reasoningDisabled.effectiveLevel, "off");
+
 assert.equal(defaultCompletion, completeSimple);
 
 interface CapturedCompletion {

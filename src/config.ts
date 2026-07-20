@@ -1,6 +1,6 @@
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import fs, { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type StoredThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -194,14 +194,22 @@ export async function refreshModelRegistry(
   const timeoutState: { handle: ReturnType<typeof setTimeout> | null } = { handle: null };
   let refreshed: boolean;
   try {
-    refreshed = await Promise.race([
-      registry.refresh().then(() => true),
-      new Promise<false>((resolve) => {
-        timeoutState.handle = setTimeout(() => {
-          resolve(false);
-        }, timeoutMs);
-      })
-    ]);
+    try {
+      refreshed = await Promise.race([
+        registry.refresh().then(() => true),
+        new Promise<false>((resolve) => {
+          timeoutState.handle = setTimeout(() => {
+            resolve(false);
+          }, timeoutMs);
+        })
+      ]);
+    } catch (error) {
+      notify(
+        `Recap: model availability refresh failed (${errorMessage(error)}); using cached model information.`,
+        "warning"
+      );
+      return false;
+    }
   } finally {
     if (timeoutState.handle !== null) clearTimeout(timeoutState.handle);
   }
@@ -235,6 +243,15 @@ export function saveRecapConfig(config: RecapConfig, agentDir = getAgentDir()): 
 
   settings.piRecap = normalizedPiRecap;
 
-  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-  renameSync(temporaryPath, configPath);
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+    fs.renameSync(temporaryPath, configPath);
+  } catch (error) {
+    try {
+      unlinkSync(temporaryPath);
+    } catch {
+      // The temporary file may not have been created, or cleanup may be unavailable.
+    }
+    throw error;
+  }
 }

@@ -260,6 +260,8 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
 // The real ui.custom wrapper uses the same headless controller factory.
 {
   const registry = new FakeRegistry([]);
+  registry.refreshImplementation = () => Promise.reject(new Error("provider offline"));
+  const notices: Notice[] = [];
   let customOptions: { overlay?: boolean } | undefined;
   const fakeTui = { requestRender: () => undefined } as unknown as TUI;
   const fakeTheme = {
@@ -288,7 +290,9 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
   const custom = customImplementation as unknown as ExtensionContext["ui"]["custom"];
   const ui = {
     custom,
-    notify: () => undefined
+    notify: (message: string, type: Notice["type"]) => {
+      notices.push({ message, type });
+    }
   } as unknown as ExtensionContext["ui"];
   await openRecapSettingsMenu({
     ui,
@@ -303,6 +307,13 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
   });
   assert.equal(customOptions?.overlay, true);
   assert.equal(registry.refreshCount, 1);
+  assert.deepEqual(notices, [
+    {
+      message:
+        "Recap: model availability refresh failed (provider offline); using cached model information.",
+      type: "warning"
+    }
+  ]);
 }
 
 // A stalled refresh on model-submenu entry is bounded, so the serialized input queue can
