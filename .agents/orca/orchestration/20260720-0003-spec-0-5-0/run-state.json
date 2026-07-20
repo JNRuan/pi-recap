@@ -37,7 +37,30 @@
     "term_22f7786a-7760-483a-a3d5-2a748f11c7dc",
     "term_0648b1bd-70f7-41b2-b7d7-1b84407d4c65"
   ],
-  "tasks": [],
+  "tasks": [
+    {
+      "seq": "01",
+      "slug": "baseline-config-commands",
+      "task_id": "task_68ca179bb5a1",
+      "complexity": "high",
+      "builder": "codex gpt-5.6-sol xhigh (danger-full-access nono workaround)",
+      "worktree_id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-01-baseline-config-commands",
+      "worktree_path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-01-baseline-config-commands",
+      "branch": "20260720-0003-spec-0-5-0-01-baseline-config-commands",
+      "starting_commit": "387e19b92201f436037aa4431ae90fa661af59f5",
+      "terminal": "term_f0541028-d110-468c-8c1d-deef0d891fd5",
+      "dispatch": "ctx_b2a39271e00a",
+      "superseded_dispatches": [],
+      "cycles": 0,
+      "assignment": "tasks/01-baseline-config-commands-assignment.md",
+      "report": "tasks/01-baseline-config-commands-report.md",
+      "auto_terminals_closed": [
+        "term_9ff6c95b-34c9-4c32-874a-3d7a7149c030",
+        "term_8f94b5f8-1049-4247-8a74-b11e0a39124f"
+      ],
+      "status": "dispatched"
+    }
+  ],
   "critics": [
     {
       "lens": "claude",
@@ -92,5 +115,12 @@
     "task_worktrees_removed": [],
     "terminals_closed_final": false
   },
-  "status": "plan-gate"
+  "status": "building",
+  "dag": {
+    "01": "task_68ca179bb5a1",
+    "02": "task_b00ddac1f4ba",
+    "03": "task_caac6fa8ead9",
+    "04": "task_f5d47fd91726",
+    "05": "task_d624f9efefa9"
+  }
 }
