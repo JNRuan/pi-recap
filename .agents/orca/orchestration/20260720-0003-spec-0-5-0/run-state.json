@@ -63,6 +63,42 @@
         "first builder terminal (term_f0541028) could not read RUNDIR: nono grants only cover the terminal cwd worktree; --add-dir does not inform nono. Rebooted with: nono run --profile my-codex --allow-cwd --allow <RUNDIR> -- codex ... All future Codex workers in task worktrees boot this way."
       ],
       "merged_commit": "797c5f3"
+    },
+    {
+      "seq": "02",
+      "slug": "generate",
+      "task_id": "task_b00ddac1f4ba",
+      "complexity": "medium",
+      "builder": "codex gpt-5.6-sol high (nono --allow RUNDIR, danger-full-access)",
+      "worktree_id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-02-generate",
+      "worktree_path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-02-generate",
+      "branch": "20260720-0003-spec-0-5-0-02-generate",
+      "starting_commit": "a905b48cd275c8685206e9350a2b020d985aadfb",
+      "terminal": "term_809e4305-5113-4fce-8dc7-4154fd2d97fd",
+      "dispatch": "ctx_f8ef8c15bb9f",
+      "superseded_dispatches": [],
+      "cycles": 0,
+      "assignment": "tasks/02-generate-assignment.md",
+      "report": "tasks/02-generate-report.md",
+      "status": "dispatched"
+    },
+    {
+      "seq": "03",
+      "slug": "settings-menu",
+      "task_id": "task_caac6fa8ead9",
+      "complexity": "high",
+      "builder": "codex gpt-5.6-sol xhigh (nono --allow RUNDIR, danger-full-access)",
+      "worktree_id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-03-settings-menu",
+      "worktree_path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-03-settings-menu",
+      "branch": "20260720-0003-spec-0-5-0-03-settings-menu",
+      "starting_commit": "a905b48cd275c8685206e9350a2b020d985aadfb",
+      "terminal": "term_78f3440b-f395-46f2-8dd5-7f5fb3e9f30c",
+      "dispatch": "ctx_5154750bad25",
+      "superseded_dispatches": [],
+      "cycles": 0,
+      "assignment": "tasks/03-settings-menu-assignment.md",
+      "report": "tasks/03-settings-menu-report.md",
+      "status": "dispatched"
     }
   ],
   "critics": [
