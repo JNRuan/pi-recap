@@ -31,7 +31,38 @@
     "term_0648b1bd-70f7-41b2-b7d7-1b84407d4c65"
   ],
   "tasks": [],
-  "critics": [],
+  "critics": [
+    {
+      "lens": "claude",
+      "model": "fable",
+      "terminal": "term_b6248296-503d-4f3f-b186-d11f640eeee0",
+      "rounds": [
+        {
+          "round": 1,
+          "task": "task_363f20666deb",
+          "dispatch": "ctx_6df9d9e20b60",
+          "head_before": "26a6017375f96dd7e11d598d2c919cb9453718fa",
+          "status": "dispatched"
+        }
+      ]
+    },
+    {
+      "lens": "codex",
+      "model": "gpt-5.6-sol",
+      "terminal": "term_3f11fd25-5c8b-4871-8bc6-8298143c2476",
+      "sandbox_note": "inner workspace-write sandbox cannot nest inside outer nono sandbox; rebooted with danger-full-access (still nono-confined). First terminal term_b76fb04b closed; dispatch ctx_39d2a51ab754 superseded.",
+      "rounds": [
+        {
+          "round": 1,
+          "task": "task_72220dfe35f7",
+          "dispatch": "ctx_2a622b0f80c4",
+          "superseded_dispatches": ["ctx_39d2a51ab754"],
+          "head_before": "26a6017375f96dd7e11d598d2c919cb9453718fa",
+          "status": "dispatched"
+        }
+      ]
+    }
+  ],
   "reviewers": [],
   "qa": null,
   "cleanup": {
