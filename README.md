@@ -2,7 +2,9 @@
 
 Author: JNRuan
 
-A pi extension that keeps a running recap of your conversation visible above the editor. It extracts recent context with recency bias, surfaces compaction summaries so earlier context isn't lost, and auto-refreshes on a configurable interval or on demand via `/recap`.
+A Pi extension that keeps a task-oriented Recap of the recent conversation visible above the editor. It uses recent visible messages and compaction summaries to restore task continuity, with manual refresh and optional Auto Recap after an Idle Delay.
+
+Requires Pi 0.80.10 or newer.
 
 ## Install
 
@@ -16,47 +18,53 @@ pi install ./pi-recap
 
 ## Usage
 
-```
-/recap                         Force-refresh the recap now
-/recap on                     Enable auto-refresh
-/recap off                    Disable auto-refresh
-/recap model provider/model    Set the model used for recaps
-/recap interval 300            Set the idle delay in seconds (0 disables)
-/recap messages 20            Set how many recent messages to summarize
-/recap config                 Show current recap settings
+```text
+/recap                                Refresh the Recap now
+/recap settings                       Open staged interactive settings
+/recap auto on|off                    Enable or disable Auto Recap
+/recap model provider/model|none      Set or clear the Recap Model
+/recap thinking level                 Set the Recap Thinking Level
+/recap delay seconds                  Set the positive Idle Delay
+/recap messages count                 Set Recent Messages
+/recap words count                    Set Maximum Words
+/recap config                         Show the effective global configuration
 ```
 
-## Settings
+`/recap settings` opens a TUI menu for Recap Model, Recap Thinking Level, Auto Recap, Idle Delay, Recent Messages, and Maximum Words. Changes remain in a draft until Save; Escape discards them. Typed setters persist immediately and remain available outside TUI mode.
 
-Add to `~/.pi/agent/settings.json` (global) or `.pi/settings.json` (per project):
+## Configuration
+
+Configuration is read only from the global `piRecap` object in `~/.pi/agent/settings.json`. Project-local `piRecap` settings are ignored.
 
 ```json
 {
   "piRecap": {
-    "provider": "",
-    "model": "",
-    "effort": "low",
-    "intervalSeconds": 300,
+    "recapModel": null,
+    "thinkingLevel": "low",
+    "autoRecapEnabled": true,
+    "idleDelaySeconds": 300,
     "wordLimit": 100,
     "recentMessageLimit": 20
   }
 }
 ```
 
-| Key                  | Default       | Description                                         |
-| -------------------- | ------------- | --------------------------------------------------- |
-| `provider`           | `""`          | Model provider for recap                            |
-| `model`              | `""`          | Model ID for recap                                  |
-| `effort`             | `"low"`       | Reasoning effort (`low`, `medium`, `high`)          |
-| `intervalSeconds`    | `300` (5 min) | Idle delay before auto-refresh; `0` disables        |
-| `wordLimit`          | `100`         | Max words in the recap                              |
-| `recentMessageLimit` | `20`          | Recent visible user/assistant messages to summarize |
+| Key                  | Default | Description                                                                     |
+| -------------------- | ------- | ------------------------------------------------------------------------------- |
+| `recapModel`         | `null`  | Recap Model as `{ "provider": "...", "id": "..." }`, or `null`                  |
+| `thinkingLevel`      | `"low"` | Recap Thinking Level: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
+| `autoRecapEnabled`   | `true`  | Whether inactivity can trigger Auto Recap                                       |
+| `idleDelaySeconds`   | `300`   | Positive Idle Delay before Auto Recap                                           |
+| `wordLimit`          | `100`   | Maximum Words in generated Recaps                                               |
+| `recentMessageLimit` | `20`    | Recent visible user and assistant messages used for a Recap                     |
+
+Existing global `provider`, `model`, and `intervalSeconds` values are migrated when settings are next saved. A legacy delay of `0` disables Auto Recap while retaining the default 300-second Idle Delay. The obsolete `effort` field is dropped, and new saves normalize `piRecap` to the schema above.
 
 ## Behavior
 
-- **Loading:** an animated Braille spinner (⠋⠙⠹…) is shown while the recap is being generated.
-- **Idle-aware:** the recap clears when a new prompt or turn starts and reappears after the configured idle delay.
-- **Task-oriented:** the recap focuses on the recent high-level task/current state and next useful step from the last 20 visible messages by default, not file lists or tool-call logs.
-- **Setup warning:** if `provider` or `model` is unset, pi-recap warns on load and waits for `/recap model provider/model`.
-- **Auto-refresh:** runs after 5 minutes of continuous idle time, or on demand with `/recap`. Configure with `/recap interval 300` or `piRecap.intervalSeconds`.
-- **Session resume:** automatically generates a recap when resuming or forking a session once a model is configured.
+- **Independent model:** the Recap Model and Recap Thinking Level do not change Pi's active model or thinking level.
+- **Idle-aware:** Auto Recap requires uninterrupted inactivity for the full Idle Delay. Disabling Auto Recap preserves that delay.
+- **Task-oriented:** newer explicit task state takes priority, while older and compacted context remains background.
+- **Safe default:** no model call or startup warning occurs while the Recap Model is `null`; manual `/recap` explains that a model must be configured.
+- **Shared generation:** manual refresh, session resume or fork, compaction, and Auto Recap use the same validation and generation path.
+- **Failure behavior:** failed refreshes leave the previous successful Recap visible and report relevant manual-generation errors.
