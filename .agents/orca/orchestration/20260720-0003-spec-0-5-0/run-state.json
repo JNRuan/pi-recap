@@ -9,8 +9,8 @@
   "started_at": "2026-07-20T00:03:00Z",
   "base_ref": "main",
   "base_sha": "d1e9d8c3e0934cd8d48a35ce338259347bc4ef45",
-  "plan_review_tier": "pending",
-  "plan_review_cap": "pending",
+  "plan_review_tier": "medium",
+  "plan_review_cap": 2,
   "run_complexity": "pending",
   "code_review_cap": "pending",
   "adversarial_qa": "pending",
@@ -38,5 +38,5 @@
     "task_worktrees_removed": [],
     "terminals_closed_final": false
   },
-  "status": "setup"
+  "status": "planning"
 }
