@@ -1,15 +1,21 @@
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { getSelectListTheme } from "@earendil-works/pi-coding-agent";
+import { getSelectListTheme, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
+  Box,
   Container,
   Input,
   SelectList,
+  SettingsList,
+  Spacer,
   Text,
+  truncateToWidth,
+  visibleWidth,
   type KeybindingsManager,
   type SelectItem,
   type SelectListTheme,
+  type SettingItem,
   type TUI
 } from "@earendil-works/pi-tui";
 import {
@@ -66,16 +72,13 @@ export interface SettingsMenuInspection {
 
 export interface CreateRecapSettingsControllerOptions extends PerformSaveDeps {
   tui: Pick<TUI, "requestRender">;
-  theme: Pick<Theme, "fg">;
+  theme: Pick<Theme, "bg" | "bold" | "fg">;
   keybindings: KeybindingsManager;
   initialConfig: RecapConfig;
 }
 
 interface MainScreen {
   kind: "main";
-  component: SelectList;
-  items: SelectItem[];
-  selected: SelectItem | null;
 }
 
 interface ModelEntry {
@@ -86,37 +89,41 @@ interface ModelEntry {
 
 interface ModelScreen {
   kind: "model";
-  component: Container;
+  component: InteractiveContainer;
   input: Input;
   list: SelectList;
   entries: ModelEntry[];
   visibleEntries: ModelEntry[];
   selected: SelectItem | null;
+  done(selectedValue?: string): void;
 }
 
 interface ChoiceScreen {
-  kind: "thinking" | "auto";
-  component: Container;
+  kind: "thinking";
+  component: InteractiveContainer;
   list: SelectList;
   items: SelectItem[];
   selected: SelectItem | null;
+  done(selectedValue?: string): void;
 }
 
 interface PresetScreen {
   kind: "preset";
-  component: Container;
+  component: InteractiveContainer;
   list: SelectList;
   items: SelectItem[];
   field: NumericField;
   selected: SelectItem | null;
+  done(selectedValue?: string): void;
 }
 
 interface CustomInputScreen {
   kind: "customInput";
-  component: Container;
+  component: InteractiveContainer;
   input: Input;
   errorText: Text;
   field: NumericField;
+  parent: PresetScreen;
   submitted: string | null;
   cancelled: boolean;
   error: string | null;
@@ -124,7 +131,7 @@ interface CustomInputScreen {
 
 type SettingsScreen = MainScreen | ModelScreen | ChoiceScreen | PresetScreen | CustomInputScreen;
 
-type SelectableScreen = MainScreen | ModelScreen | ChoiceScreen | PresetScreen;
+type SelectableScreen = ModelScreen | ChoiceScreen | PresetScreen;
 
 const MAIN_VALUES = ["model", "thinking", "auto", "delay", "messages", "words", "save"] as const;
 
@@ -139,6 +146,61 @@ const FIELD_PRESETS: Record<NumericField, readonly number[]> = {
   recentMessageLimit: [10, 20, 30, 50],
   wordLimit: [50, 75, 100, 150, 200]
 };
+
+const NUMERIC_ITEM_FIELDS = {
+  delay: "idleDelaySeconds",
+  messages: "recentMessageLimit",
+  words: "wordLimit"
+} as const satisfies Record<string, NumericField>;
+
+class InteractiveContainer extends Container {
+  private onInput: (data: string) => void = () => undefined;
+
+  setInputHandler(onInput: (data: string) => void): void {
+    this.onInput = onInput;
+  }
+
+  handleInput(data: string): void {
+    this.onInput(data);
+  }
+}
+
+class RecapSettingsFrame {
+  private readonly box: Box;
+
+  constructor(
+    content: SettingsList,
+    private readonly theme: Pick<Theme, "bg" | "fg">
+  ) {
+    this.box = new Box(1, 0, (text) => this.theme.bg("customMessageBg", text));
+    this.box.addChild(content);
+  }
+
+  invalidate(): void {
+    this.box.invalidate();
+  }
+
+  render(width: number): string[] {
+    const frameWidth = Math.max(4, width);
+    const contentWidth = frameWidth - 2;
+    const contentLines = this.box.render(contentWidth);
+    const border = (text: string): string => this.theme.fg("borderMuted", text);
+    const titlePrefix = "╭─ Recap Settings ";
+    const top =
+      visibleWidth(titlePrefix) + 1 <= frameWidth
+        ? `${titlePrefix}${"─".repeat(frameWidth - visibleWidth(titlePrefix) - 1)}╮`
+        : `╭${"─".repeat(frameWidth - 2)}╮`;
+
+    return [
+      border(top),
+      ...contentLines.map((line) => {
+        const fitted = truncateToWidth(line, contentWidth, "", true);
+        return `${border("│")}${fitted}${border("│")}`;
+      }),
+      border(`╰${"─".repeat(frameWidth - 2)}╯`)
+    ];
+  }
+}
 
 function copyConfig(config: RecapConfig): RecapConfig {
   return {
@@ -257,20 +319,39 @@ export async function performSave(
 export class RecapSettingsController extends Container {
   private readonly options: CreateRecapSettingsControllerOptions;
   private readonly selectListTheme: SelectListTheme;
-  private readonly screens: SettingsScreen[];
+  private readonly mainItems: SettingItem[];
+  private readonly mainList: SettingsList;
   private draft: SettingsDraft;
+  private screen: SettingsScreen = { kind: "main" };
   private mainSelectionIndex = 0;
   private focusedState = false;
   private closed = false;
   private inputQueue: Promise<void> = Promise.resolve();
+  private pendingMainChange: { id: string; value: string } | null = null;
+  private pendingModelSelection: {
+    selection: { ref: RecapModelRef; model: Model<Api> } | null;
+  } | null = null;
 
   constructor(options: CreateRecapSettingsControllerOptions) {
     super();
     this.options = options;
     this.selectListTheme = getSelectListTheme();
     this.draft = copyConfig(options.initialConfig);
-    this.screens = [this.buildMainScreen()];
-    this.showCurrentScreen();
+    this.mainItems = this.buildMainItems();
+    this.mainList = new SettingsList(
+      this.mainItems,
+      this.mainItems.length,
+      getSettingsListTheme(),
+      (id, newValue) => {
+        this.pendingMainChange = { id, value: newValue };
+      },
+      () => {
+        this.close("cancelled");
+      },
+      { enableSearch: false }
+    );
+    this.addChild(new RecapSettingsFrame(this.mainList, options.theme));
+    this.options.tui.requestRender();
   }
 
   get focused(): boolean {
@@ -295,15 +376,17 @@ export class RecapSettingsController extends Container {
   }
 
   inspect(): SettingsMenuInspection {
-    const screen = this.currentScreen();
-    const list = this.screenList(screen);
+    const list = this.screenList(this.screen);
     return {
-      screen: screen.kind,
+      screen: this.screen.kind,
       draft: copyConfig(this.draft),
-      options: this.screenItems(screen).map((item) => item.label),
-      selectedValue: list?.getSelectedItem()?.value ?? null,
-      filter: screen.kind === "model" ? screen.input.getValue() : null,
-      error: screen.kind === "customInput" ? screen.error : null
+      options: this.screenItems(this.screen).map((item) => item.label),
+      selectedValue:
+        this.screen.kind === "main"
+          ? (MAIN_VALUES[this.mainSelectionIndex] ?? null)
+          : (list?.getSelectedItem()?.value ?? null),
+      filter: this.screen.kind === "model" ? this.screen.input.getValue() : null,
+      error: this.screen.kind === "customInput" ? this.screen.error : null
     };
   }
 
@@ -318,36 +401,30 @@ export class RecapSettingsController extends Container {
   }
 
   private async processInput(data: string): Promise<void> {
-    const screen = this.currentScreen();
-    switch (screen.kind) {
-      case "main":
-        await this.processMainInput(screen, data);
-        break;
-      case "model":
-        this.processModelInput(screen, data);
-        break;
-      case "thinking":
-        this.processThinkingInput(screen, data);
-        break;
-      case "auto":
-        this.processAutoInput(screen, data);
-        break;
-      case "preset":
-        this.processPresetInput(screen, data);
-        break;
-      case "customInput":
-        this.processCustomInput(screen, data);
-        break;
+    if (this.screen.kind === "main") {
+      this.updateMainSelection(data);
+      const selectedId = MAIN_VALUES[this.mainSelectionIndex];
+      if (selectedId === "model" && this.isSettingsConfirmInput(data)) {
+        await refreshModelRegistry(
+          this.options.registry,
+          (message, type) => {
+            this.options.notify(message, type);
+          },
+          this.options.refreshTimeoutMs
+        );
+      }
     }
+
+    this.pendingMainChange = null;
+    this.mainList.handleInput(data);
+    const change = this.takePendingMainChange();
+    if (change !== null) await this.applyMainChange(change.id, change.value);
   }
 
-  private async processMainInput(screen: MainScreen, data: string): Promise<void> {
-    this.resetSelection(screen);
-    screen.component.handleInput(data);
-    const selected = this.takeSelection(screen);
-    if (selected !== null) {
-      await this.activateMainItem(selected.value);
-    }
+  private takePendingMainChange(): { id: string; value: string } | null {
+    const change = this.pendingMainChange;
+    this.pendingMainChange = null;
+    return change;
   }
 
   private processModelInput(screen: ModelScreen, data: string): void {
@@ -360,8 +437,10 @@ export class RecapSettingsController extends Container {
           (candidate) => candidate.item.value === selected.value
         );
         if (entry !== undefined) {
-          this.draft = applyModelSelection(this.draft, entry.selection);
-          this.returnToMain();
+          this.pendingModelSelection = { selection: entry.selection };
+          this.finishSubmenu((value) => {
+            screen.done(value);
+          }, this.modelSelectionValue(entry.selection));
         }
       }
       return;
@@ -376,18 +455,9 @@ export class RecapSettingsController extends Container {
     screen.list.handleInput(data);
     const selected = this.takeSelection(screen);
     if (selected !== null) {
-      this.draft = applyThinkingSelection(this.draft, selected.value as StoredThinkingLevel);
-      this.returnToMain();
-    }
-  }
-
-  private processAutoInput(screen: ChoiceScreen, data: string): void {
-    this.resetSelection(screen);
-    screen.list.handleInput(data);
-    const selected = this.takeSelection(screen);
-    if (selected !== null) {
-      this.draft = applyAutoToggle(this.draft, selected.value === "on");
-      this.returnToMain();
+      this.finishSubmenu((value) => {
+        screen.done(value);
+      }, selected.value);
     }
   }
 
@@ -398,13 +468,13 @@ export class RecapSettingsController extends Container {
     if (selected === null) return;
 
     if (selected.value === "custom") {
-      this.pushScreen(this.buildCustomInputScreen(screen.field));
+      this.showCustomInput(screen);
       return;
     }
 
-    const value = Number(selected.value);
-    this.draft = applyNumericValue(this.draft, screen.field, value);
-    this.returnToMain();
+    this.finishSubmenu((value) => {
+      screen.done(value);
+    }, selected.value);
   }
 
   private processCustomInput(screen: CustomInputScreen, data: string): void {
@@ -413,7 +483,10 @@ export class RecapSettingsController extends Container {
     const outcome = this.takeCustomOutcome(screen);
 
     if (outcome.cancelled) {
-      this.popScreen();
+      this.screen = screen.parent;
+      this.renderPresetScreen(screen.parent);
+      this.syncInputFocus();
+      this.options.tui.requestRender();
       return;
     }
 
@@ -427,36 +500,27 @@ export class RecapSettingsController extends Container {
       return;
     }
 
-    this.draft = applyNumericValue(this.draft, screen.field, value);
-    this.returnToMain();
+    this.finishSubmenu((selectedValue) => {
+      screen.parent.done(selectedValue);
+    }, String(value));
   }
 
-  private async activateMainItem(value: string): Promise<void> {
-    switch (value) {
+  private async applyMainChange(id: string, newValue: string): Promise<void> {
+    switch (id) {
       case "model":
-        await refreshModelRegistry(
-          this.options.registry,
-          (message, type) => {
-            this.options.notify(message, type);
-          },
-          this.options.refreshTimeoutMs
-        );
-        this.pushScreen(this.buildModelScreen());
+        if (this.pendingModelSelection !== null) {
+          this.draft = applyModelSelection(this.draft, this.pendingModelSelection.selection);
+          this.pendingModelSelection = null;
+          this.updateMainValues();
+        }
         break;
       case "thinking":
-        this.pushScreen(this.buildThinkingScreen());
+        this.draft = applyThinkingSelection(this.draft, newValue as StoredThinkingLevel);
+        this.updateMainValues();
         break;
       case "auto":
-        this.pushScreen(this.buildAutoScreen());
-        break;
-      case "delay":
-        this.pushScreen(this.buildPresetScreen("idleDelaySeconds"));
-        break;
-      case "messages":
-        this.pushScreen(this.buildPresetScreen("recentMessageLimit"));
-        break;
-      case "words":
-        this.pushScreen(this.buildPresetScreen("wordLimit"));
+        this.draft = applyAutoToggle(this.draft, newValue === "On");
+        this.updateMainValues();
         break;
       case "save": {
         const result = await performSave(this.draft, {
@@ -468,50 +532,74 @@ export class RecapSettingsController extends Container {
         if (!result.ok) this.options.tui.requestRender();
         break;
       }
+      case "delay":
+      case "messages":
+      case "words": {
+        const value = parseCustomNumeric(newValue);
+        if (value !== null) {
+          this.draft = applyNumericValue(this.draft, NUMERIC_ITEM_FIELDS[id], value);
+          this.updateMainValues();
+        }
+        break;
+      }
     }
   }
 
-  private buildMainScreen(): MainScreen {
-    const items = this.mainItems();
-    const list = new SelectList(items, items.length, this.selectListTheme);
-    list.setSelectedIndex(this.mainSelectionIndex);
-    const screen: MainScreen = {
-      kind: "main",
-      component: list,
-      items,
-      selected: null
-    };
-    list.onSelectionChange = (item) => {
-      const index = MAIN_VALUES.indexOf(item.value as (typeof MAIN_VALUES)[number]);
-      if (index >= 0) this.mainSelectionIndex = index;
-    };
-    list.onSelect = (item) => {
-      screen.selected = item;
-    };
-    list.onCancel = () => {
-      this.close("cancelled");
-    };
-    return screen;
-  }
-
-  private mainItems(): SelectItem[] {
-    const recapModel =
-      this.draft.recapModel === null
-        ? "(none)"
-        : `${this.draft.recapModel.provider}/${this.draft.recapModel.id}`;
+  private buildMainItems(): SettingItem[] {
     return [
-      { value: "model", label: `Recap Model: ${recapModel}` },
-      { value: "thinking", label: `Recap Thinking Level: ${this.draft.thinkingLevel}` },
-      { value: "auto", label: `Auto Recap: ${this.draft.autoRecapEnabled ? "On" : "Off"}` },
-      { value: "delay", label: `Idle Delay: ${this.draft.idleDelaySeconds}s` },
-      { value: "messages", label: `Recent Messages: ${this.draft.recentMessageLimit}` },
-      { value: "words", label: `Maximum Words: ${this.draft.wordLimit}` },
-      { value: "save", label: "Save" }
+      {
+        id: "model",
+        label: "Recap Model",
+        description: "Model used to generate recaps",
+        currentValue: this.modelCurrentValue(),
+        submenu: (_currentValue, done) => this.buildModelScreen(done)
+      },
+      {
+        id: "thinking",
+        label: "Recap Thinking Level",
+        description: "Reasoning level for recap generation (clamped to the Recap Model)",
+        currentValue: this.draft.thinkingLevel,
+        submenu: (_currentValue, done) => this.buildThinkingScreen(done)
+      },
+      {
+        id: "auto",
+        label: "Auto Recap",
+        description: "Generate a recap automatically after the Idle Delay",
+        currentValue: this.draft.autoRecapEnabled ? "On" : "Off",
+        values: ["On", "Off"]
+      },
+      {
+        id: "delay",
+        label: "Idle Delay",
+        description: "Wait time after the last response before generating an automatic recap",
+        currentValue: `${this.draft.idleDelaySeconds}s`,
+        submenu: (_currentValue, done) => this.buildPresetScreen("idleDelaySeconds", done)
+      },
+      {
+        id: "messages",
+        label: "Recent Messages",
+        description: "Recent visible messages included when generating a recap",
+        currentValue: String(this.draft.recentMessageLimit),
+        submenu: (_currentValue, done) => this.buildPresetScreen("recentMessageLimit", done)
+      },
+      {
+        id: "words",
+        label: "Maximum Words",
+        description: "Maximum number of words in a generated recap",
+        currentValue: String(this.draft.wordLimit),
+        submenu: (_currentValue, done) => this.buildPresetScreen("wordLimit", done)
+      },
+      {
+        id: "save",
+        label: "Save",
+        description: "Validate and save these recap settings",
+        currentValue: "Save changes",
+        values: ["Save changes"]
+      }
     ];
   }
 
-  private buildModelScreen(): ModelScreen {
-    const component = new Container();
+  private buildModelScreen(done: (selectedValue?: string) => void): InteractiveContainer {
     const input = new Input();
     const entries: ModelEntry[] = [
       {
@@ -532,6 +620,7 @@ export class RecapSettingsController extends Container {
         searchText: `${model.id} ${model.provider} ${model.name}`.toLowerCase()
       }))
     ];
+    const component = new InteractiveContainer();
     const screen: ModelScreen = {
       kind: "model",
       component,
@@ -539,13 +628,16 @@ export class RecapSettingsController extends Container {
       list: new SelectList([], 10, this.selectListTheme),
       entries,
       visibleEntries: entries,
-      selected: null
+      selected: null,
+      done
     };
-    input.onEscape = () => {
-      this.popScreen();
-    };
+    component.setInputHandler((data) => {
+      this.processModelInput(screen, data);
+    });
+    this.pendingModelSelection = null;
+    this.screen = screen;
     this.rebuildModelList(screen, this.selectedModelEntryValue(entries));
-    return screen;
+    return component;
   }
 
   private selectedModelEntryValue(entries: ModelEntry[]): string {
@@ -583,19 +675,26 @@ export class RecapSettingsController extends Container {
       screen.selected = item;
     };
     list.onCancel = () => {
-      this.popScreen();
+      this.finishSubmenu((value) => {
+        screen.done(value);
+      });
     };
     screen.list = list;
 
-    screen.component.clear();
-    screen.component.addChild(new Text("Recap Model"));
+    this.addSubmenuHeader(
+      screen.component,
+      "Recap Model",
+      "Type to filter by model ID, provider, or name."
+    );
     screen.component.addChild(screen.input);
+    screen.component.addChild(new Spacer(1));
     screen.component.addChild(list);
+    this.addSubmenuHint(screen.component, "Enter to select · Esc to go back");
     screen.input.focused = this.focusedState;
     this.options.tui.requestRender();
   }
 
-  private buildThinkingScreen(): ChoiceScreen {
+  private buildThinkingScreen(done: (selectedValue?: string) => void): InteractiveContainer {
     const model =
       this.draft.recapModel === null
         ? null
@@ -605,52 +704,41 @@ export class RecapSettingsController extends Container {
     const list = new SelectList(items, items.length, this.selectListTheme);
     const selectedIndex = items.findIndex((item) => item.value === this.draft.thinkingLevel);
     list.setSelectedIndex(selectedIndex >= 0 ? selectedIndex : 0);
-    const component = new Container();
-    component.addChild(new Text("Recap Thinking Level"));
-    component.addChild(list);
+    const component = new InteractiveContainer();
     const screen: ChoiceScreen = {
       kind: "thinking",
       component,
       list,
       items,
-      selected: null
+      selected: null,
+      done
     };
+    component.setInputHandler((data) => {
+      this.processThinkingInput(screen, data);
+    });
     list.onSelect = (item) => {
       screen.selected = item;
     };
     list.onCancel = () => {
-      this.popScreen();
+      this.finishSubmenu((value) => {
+        screen.done(value);
+      });
     };
-    return screen;
-  }
-
-  private buildAutoScreen(): ChoiceScreen {
-    const items: SelectItem[] = [
-      { value: "on", label: "On" },
-      { value: "off", label: "Off" }
-    ];
-    const list = new SelectList(items, items.length, this.selectListTheme);
-    list.setSelectedIndex(this.draft.autoRecapEnabled ? 0 : 1);
-    const component = new Container();
-    component.addChild(new Text("Auto Recap"));
-    component.addChild(list);
-    const screen: ChoiceScreen = {
-      kind: "auto",
+    this.screen = screen;
+    this.addSubmenuHeader(
       component,
-      list,
-      items,
-      selected: null
-    };
-    list.onSelect = (item) => {
-      screen.selected = item;
-    };
-    list.onCancel = () => {
-      this.popScreen();
-    };
-    return screen;
+      "Recap Thinking Level",
+      "Select the reasoning level used for recap generation."
+    );
+    component.addChild(list);
+    this.addSubmenuHint(component, "Enter to select · Esc to go back");
+    return component;
   }
 
-  private buildPresetScreen(field: NumericField): PresetScreen {
+  private buildPresetScreen(
+    field: NumericField,
+    done: (selectedValue?: string) => void
+  ): InteractiveContainer {
     const items: SelectItem[] = [
       ...FIELD_PRESETS[field].map((value) => ({
         value: String(value),
@@ -662,39 +750,46 @@ export class RecapSettingsController extends Container {
     const currentValue = String(this.draft[field]);
     const currentIndex = items.findIndex((item) => item.value === currentValue);
     list.setSelectedIndex(currentIndex >= 0 ? currentIndex : 0);
-    const component = new Container();
-    component.addChild(new Text(FIELD_LABELS[field]));
-    component.addChild(list);
+    const component = new InteractiveContainer();
     const screen: PresetScreen = {
       kind: "preset",
       component,
       list,
       items,
       field,
-      selected: null
+      selected: null,
+      done
     };
+    component.setInputHandler((data) => {
+      if (this.screen.kind === "customInput") {
+        this.processCustomInput(this.screen, data);
+      } else {
+        this.processPresetInput(screen, data);
+      }
+    });
     list.onSelect = (item) => {
       screen.selected = item;
     };
     list.onCancel = () => {
-      this.popScreen();
+      this.finishSubmenu((value) => {
+        screen.done(value);
+      });
     };
-    return screen;
+    this.screen = screen;
+    this.renderPresetScreen(screen);
+    return component;
   }
 
-  private buildCustomInputScreen(field: NumericField): CustomInputScreen {
+  private showCustomInput(parent: PresetScreen): void {
     const input = new Input();
     const errorText = new Text("");
-    const component = new Container();
-    component.addChild(new Text(`Custom ${FIELD_LABELS[field]}`));
-    component.addChild(input);
-    component.addChild(errorText);
     const screen: CustomInputScreen = {
       kind: "customInput",
-      component,
+      component: parent.component,
       input,
       errorText,
-      field,
+      field: parent.field,
+      parent,
       submitted: null,
       cancelled: false,
       error: null
@@ -705,7 +800,17 @@ export class RecapSettingsController extends Container {
     input.onEscape = () => {
       screen.cancelled = true;
     };
-    return screen;
+    this.screen = screen;
+    this.addSubmenuHeader(
+      parent.component,
+      `Custom ${FIELD_LABELS[parent.field]}`,
+      "Enter a positive whole number."
+    );
+    parent.component.addChild(input);
+    parent.component.addChild(errorText);
+    this.addSubmenuHint(parent.component, "Enter to use · Esc to go back");
+    this.syncInputFocus();
+    this.options.tui.requestRender();
   }
 
   private isSelectListInput(data: string): boolean {
@@ -739,17 +844,84 @@ export class RecapSettingsController extends Container {
     return { submitted: screen.submitted, cancelled: screen.cancelled };
   }
 
-  private currentScreen(): SettingsScreen {
-    return this.screens[this.screens.length - 1];
+  private updateMainSelection(data: string): void {
+    if (this.options.keybindings.matches(data, "tui.select.up")) {
+      this.mainSelectionIndex =
+        this.mainSelectionIndex === 0 ? MAIN_VALUES.length - 1 : this.mainSelectionIndex - 1;
+    } else if (this.options.keybindings.matches(data, "tui.select.down")) {
+      this.mainSelectionIndex =
+        this.mainSelectionIndex === MAIN_VALUES.length - 1 ? 0 : this.mainSelectionIndex + 1;
+    }
+  }
+
+  private isSettingsConfirmInput(data: string): boolean {
+    return this.options.keybindings.matches(data, "tui.select.confirm") || data === " ";
+  }
+
+  private finishSubmenu(done: (selectedValue?: string) => void, selectedValue?: string): void {
+    this.screen = { kind: "main" };
+    this.syncInputFocus();
+    done(selectedValue);
+    this.options.tui.requestRender();
+  }
+
+  private modelCurrentValue(): string {
+    return this.draft.recapModel === null
+      ? "(none)"
+      : `${this.draft.recapModel.provider}/${this.draft.recapModel.id}`;
+  }
+
+  private modelSelectionValue(selection: { ref: RecapModelRef; model: Model<Api> } | null): string {
+    return selection === null ? "(none)" : `${selection.ref.provider}/${selection.ref.id}`;
+  }
+
+  private updateMainValues(): void {
+    this.mainList.updateValue("model", this.modelCurrentValue());
+    this.mainList.updateValue("thinking", this.draft.thinkingLevel);
+    this.mainList.updateValue("auto", this.draft.autoRecapEnabled ? "On" : "Off");
+    this.mainList.updateValue("delay", `${this.draft.idleDelaySeconds}s`);
+    this.mainList.updateValue("messages", String(this.draft.recentMessageLimit));
+    this.mainList.updateValue("words", String(this.draft.wordLimit));
+    this.options.tui.requestRender();
+  }
+
+  private addSubmenuHeader(
+    component: InteractiveContainer,
+    title: string,
+    description?: string
+  ): void {
+    component.clear();
+    component.addChild(
+      new Text(this.options.theme.bold(this.options.theme.fg("accent", title)), 0, 0)
+    );
+    if (description !== undefined) {
+      component.addChild(new Spacer(1));
+      component.addChild(new Text(this.options.theme.fg("muted", description), 0, 0));
+    }
+    component.addChild(new Spacer(1));
+  }
+
+  private addSubmenuHint(component: InteractiveContainer, hint: string): void {
+    component.addChild(new Spacer(1));
+    component.addChild(new Text(this.options.theme.fg("dim", `  ${hint}`), 0, 0));
+  }
+
+  private renderPresetScreen(screen: PresetScreen): void {
+    this.addSubmenuHeader(
+      screen.component,
+      FIELD_LABELS[screen.field],
+      "Select a preset or enter a custom positive whole number."
+    );
+    screen.component.addChild(screen.list);
+    this.addSubmenuHint(screen.component, "Enter to select · Esc to go back");
   }
 
   private screenList(screen: SettingsScreen): SelectList | null {
     switch (screen.kind) {
       case "main":
-        return screen.component;
+        return null;
       case "model":
       case "thinking":
-      case "auto":
       case "preset":
         return screen.list;
       case "customInput":
@@ -757,11 +929,11 @@ export class RecapSettingsController extends Container {
     }
   }
 
-  private screenItems(screen: SettingsScreen): SelectItem[] {
+  private screenItems(screen: SettingsScreen): { label: string }[] {
     switch (screen.kind) {
       case "main":
+        return this.mainItems;
       case "thinking":
-      case "auto":
       case "preset":
         return screen.items;
       case "model":
@@ -771,36 +943,9 @@ export class RecapSettingsController extends Container {
     }
   }
 
-  private pushScreen(screen: SettingsScreen): void {
-    this.screens.push(screen);
-    this.showCurrentScreen();
-  }
-
-  private popScreen(): void {
-    if (this.screens.length === 1) {
-      this.close("cancelled");
-      return;
-    }
-    this.screens.pop();
-    this.showCurrentScreen();
-  }
-
-  private returnToMain(): void {
-    this.screens.splice(0, this.screens.length, this.buildMainScreen());
-    this.showCurrentScreen();
-  }
-
-  private showCurrentScreen(): void {
-    this.clear();
-    this.addChild(this.currentScreen().component);
-    this.syncInputFocus();
-    this.options.tui.requestRender();
-  }
-
   private syncInputFocus(): void {
-    const screen = this.currentScreen();
-    if (screen.kind === "model" || screen.kind === "customInput") {
-      screen.input.focused = this.focusedState;
+    if (this.screen.kind === "model" || this.screen.kind === "customInput") {
+      this.screen.input.focused = this.focusedState;
     }
   }
 
@@ -848,7 +993,12 @@ export async function openRecapSettingsMenu(deps: RecapSettingsMenuDeps): Promis
       }),
     {
       overlay: true,
-      overlayOptions: { width: "70%", maxHeight: "80%" }
+      overlayOptions: {
+        width: "60%",
+        minWidth: 48,
+        maxHeight: "70%",
+        margin: 1
+      }
     }
   );
 }
