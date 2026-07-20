@@ -9,6 +9,7 @@ import {
   getKeybindings,
   type Component,
   type KeybindingsManager,
+  type OverlayOptions,
   type TUI
 } from "@earendil-works/pi-tui";
 import assert from "node:assert/strict";
@@ -37,6 +38,7 @@ initTheme("dark");
 const ENTER = "\r";
 const ESCAPE = "\x1b";
 const DOWN = "\x1b[B";
+const SPACE = " ";
 
 function copyConfig(config: RecapConfig): RecapConfig {
   return {
@@ -79,7 +81,9 @@ async function createHarness(
       }
     },
     theme: {
-      fg: (_color: ThemeColor, text: string) => text
+      fg: (_color: ThemeColor, text: string) => text,
+      bg: (_color, text: string) => text,
+      bold: (text: string) => text
     },
     keybindings: getKeybindings(),
     initialConfig,
@@ -262,10 +266,12 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
   const registry = new FakeRegistry([]);
   registry.refreshImplementation = () => Promise.reject(new Error("provider offline"));
   const notices: Notice[] = [];
-  let customOptions: { overlay?: boolean } | undefined;
+  let customOptions: { overlay?: boolean; overlayOptions?: OverlayOptions } | undefined;
   const fakeTui = { requestRender: () => undefined } as unknown as TUI;
   const fakeTheme = {
-    fg: (_color: ThemeColor, text: string) => text
+    fg: (_color: ThemeColor, text: string) => text,
+    bg: (_color: never, text: string) => text,
+    bold: (text: string) => text
   } as unknown as Theme;
   const customImplementation = async <T>(
     factory: (
@@ -274,7 +280,7 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
       keybindings: KeybindingsManager,
       done: (value: T) => void
     ) => Component | Promise<Component>,
-    options?: { overlay?: boolean }
+    options?: { overlay?: boolean; overlayOptions?: OverlayOptions }
   ): Promise<T> => {
     customOptions = options;
     const result: { value?: T } = {};
@@ -306,6 +312,12 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
     }
   });
   assert.equal(customOptions?.overlay, true);
+  assert.deepEqual(customOptions.overlayOptions, {
+    width: "60%",
+    minWidth: 48,
+    maxHeight: "70%",
+    margin: 1
+  });
   assert.equal(registry.refreshCount, 1);
   assert.deepEqual(notices, [
     {
@@ -334,10 +346,18 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
 // Controller layer: main stack, Escape behavior, and all seven main rows.
 {
   const harness = await createHarness();
+  assert.deepEqual(harness.controller.inspect().options, [
+    "Recap Model",
+    "Recap Thinking Level",
+    "Auto Recap",
+    "Idle Delay",
+    "Recent Messages",
+    "Maximum Words",
+    "Save"
+  ]);
   const rows = [
     ["model", "model"],
     ["thinking", "thinking"],
-    ["auto", "auto"],
     ["delay", "preset"],
     ["messages", "preset"],
     ["words", "preset"]
@@ -350,8 +370,23 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
   }
   assert.equal(harness.saved.length, 0);
   assert.equal(harness.applied.length, 0);
+
+  await openMainRow(harness.controller, "auto");
+  assert.equal(harness.controller.inspect().screen, "main");
+  assert.equal(harness.controller.inspect().draft.autoRecapEnabled, false);
+
   await openMainRow(harness.controller, "save");
   assert.deepEqual(harness.closed, ["saved"]);
+}
+
+// The native main list is framed and supplies its own key hint.
+{
+  const harness = await createHarness();
+  const lines = harness.controller.render(80);
+  assert.match(lines[0] ?? "", /^╭─ Recap Settings ─+╮$/);
+  assert.match(lines.at(-1) ?? "", /^╰─+╯$/);
+  assert.ok(lines.slice(1, -1).every((line) => line.startsWith("│") && line.endsWith("│")));
+  assert.match(lines.join("\n"), /Enter\/Space to change · Esc to cancel/);
 }
 
 {
@@ -365,7 +400,6 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
 {
   const harness = await createHarness();
   await openMainRow(harness.controller, "auto");
-  await selectOption(harness.controller, "off");
   await openMainRow(harness.controller, "delay");
   await selectOption(harness.controller, "600");
   assert.equal(harness.controller.inspect().draft.autoRecapEnabled, false);
@@ -379,7 +413,7 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
 {
   const harness = await createHarness();
   const before = harness.controller.inspect().draft;
-  await openMainRow(harness.controller, "auto");
+  await openMainRow(harness.controller, "thinking");
   await harness.controller.handleKey(ESCAPE);
   assert.deepEqual(harness.controller.inspect().draft, before);
   assert.equal(harness.saved.length, 0);
@@ -389,7 +423,6 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
 {
   const harness = await createHarness();
   await openMainRow(harness.controller, "auto");
-  await selectOption(harness.controller, "off");
   await openMainRow(harness.controller, "delay");
   await selectOption(harness.controller, "600");
   await openMainRow(harness.controller, "save");
@@ -459,7 +492,7 @@ for (const [query, expectedLabel] of [
     id: limitedModel.id
   });
   assert.equal(inspection.draft.thinkingLevel, "medium");
-  assert.equal(inspection.options[0], "Recap Model: anthropic/claude-sonnet");
+  assert.match(harness.controller.render(80).join("\n"), /anthropic\/claude-sonnet/);
 
   await openMainRow(harness.controller, "thinking");
   assert.deepEqual(harness.controller.inspect().options, ["off", "low", "medium"]);
@@ -479,11 +512,9 @@ for (const [query, expectedLabel] of [
 {
   const harness = await createHarness();
   await openMainRow(harness.controller, "auto");
-  await selectOption(harness.controller, "off");
   assert.equal(harness.controller.inspect().draft.autoRecapEnabled, false);
   assert.equal(harness.controller.inspect().draft.idleDelaySeconds, 300);
-  await openMainRow(harness.controller, "auto");
-  await selectOption(harness.controller, "on");
+  await harness.controller.handleKey(SPACE);
   assert.equal(harness.controller.inspect().draft.autoRecapEnabled, true);
   assert.equal(harness.controller.inspect().draft.idleDelaySeconds, 300);
 }

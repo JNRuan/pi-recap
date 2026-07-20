@@ -135,6 +135,21 @@
       "assignment": "tasks/05-finish-assignment.md",
       "report": "tasks/05-finish-report.md",
       "status": "completed"
+    },
+    {
+      "seq": "08",
+      "slug": "settings-menu-native",
+      "task_id": "task_801f53ba9677",
+      "complexity": "high",
+      "builder": "codex gpt-5.6-sol xhigh (danger-full-access)",
+      "worktree": "integration (fix-style)",
+      "starting_commit": "1d2d2fee701ba2e28c28023da4774043c0b88931",
+      "fix_commit": "c97531c",
+      "terminal": "term_283c8337-1b63-431b-8e2c-a8132c54214a",
+      "dispatch": "ctx_38d92dbfc2f7",
+      "note": "post-merge follow-up approved by human: native SettingsList menu UI; ships in a NEW PR off updated main (PR #4 merged)",
+      "status": "completed",
+      "cycles": 1
     }
   ],
   "critics": [
