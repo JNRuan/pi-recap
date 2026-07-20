@@ -13,7 +13,7 @@
   "plan_review_cap": 2,
   "run_complexity": "medium",
   "code_review_cap": 2,
-  "adversarial_qa": "skip (run complexity policy)",
+  "adversarial_qa": "skipped",
   "plan_critique": {
     "rounds_run": 2,
     "stop_reason": "cap reached; round-2 accepted edits applied without re-critique",
@@ -220,7 +220,7 @@
     "task_worktrees_removed": ["02-generate", "03-settings-menu", "04-index-rewrite", "05-finish"],
     "terminals_closed_final": false
   },
-  "status": "code-review",
+  "status": "pr-prep",
   "dag": {
     "01": "task_68ca179bb5a1",
     "02": "task_b00ddac1f4ba",
@@ -238,6 +238,33 @@
       "fix_commit": "c288b74",
       "status": "completed",
       "cycles": 1
+    },
+    {
+      "round": 2,
+      "task_id": "task_165ddedf325d",
+      "terminal": "term_dedc197e-62dc-4145-a81d-95689d5cfb8c",
+      "dispatch": "ctx_6b9802de0f64",
+      "starting_commit": "59bc1868137b779e83e8a07ea0e1f5ef659de7bd",
+      "fix_commit": "d4436de",
+      "status": "completed",
+      "cycles": 1
     }
-  ]
+  ],
+  "code_review_complete": true,
+  "code_review": {
+    "rounds_run": 2,
+    "cap": 2,
+    "stop_reason": "cap reached; round-2 fix wave (commit d4436de) verified via full gate but not re-reviewed",
+    "round1": {
+      "findings": 12,
+      "accepted": 12,
+      "fix_commit": "c288b74"
+    },
+    "round2": {
+      "findings_deduped": 5,
+      "accepted": 5,
+      "fix_commit": "d4436de"
+    }
+  },
+  "adversarial_qa_reason": "run complexity policy (medium)"
 }
