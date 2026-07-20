@@ -7,7 +7,7 @@ branch: 20260720-0003-spec-0-5-0
 plan_review_tier: medium
 run_complexity: pending
 created: 2026-07-20T00:10:52Z
-modified: 2026-07-20T00:10:52Z
+modified: 2026-07-20T00:35:00Z
 ---
 
 # Plan: pi-recap 0.5.0 — interactive settings, model-aware thinking, revised prompt
@@ -24,14 +24,17 @@ The Pi runtime baseline moves from 0.74.0 to >= 0.80.10.
 
 Authoritative sources, snapshotted in this run folder (`<RUNDIR>`):
 
-- `spec_0_5_0.md` — the spec (authoritative on behavior).
+- `spec_0_5_0.md` — the spec (authoritative on **behavior**).
 - `source-plan_0_5_0.md` — the human-written implementation plan (authoritative on design detail;
   its milestone sections M0–M5 are incorporated into the tasks below by direct reference).
 - `CONTEXT.md` — domain language. User-facing text says "Recap Model", "Recap Thinking Level",
   "Auto Recap", "Idle Delay"; never "effort" or "interval".
 
-Where this plan, the source plan, and the spec disagree, the spec wins; note discrepancies in
-reports.
+Precedence: on **behavior**, the spec wins over this plan and the source plan. On **API
+surface** (export locations, type unions, signatures), the installed `.d.ts` files as recorded
+in the C5 notes win — the spec's API statements are predictions about 0.80.10, not requirements.
+An API mismatch is a contract issue: escalate for a coordinator re-pin; never improvise. Note
+every discrepancy in reports.
 
 ## Review Policy
 
@@ -64,12 +67,20 @@ Quoted from `spec_0_5_0.md` "Acceptance criteria":
   configured maximum length.
 - **AC-12**: Bare `/recap` still refreshes immediately, and typed subcommands remain usable.
 
-Supporting requirements (spec "Runtime baseline", "Commands", "Verification requirements"):
+Supporting requirements (spec "Runtime baseline", "Commands", "Verification requirements",
+"Existing behavior retained"):
 
-- **AC-13**: Pi >= 0.80.10 baseline enforced (peer ranges, lockfile, runtime guard).
+- **AC-13**: Pi >= 0.80.10 baseline enforced (peer ranges, lockfile resolution of **all three**
+  packages, load-safe runtime guard).
 - **AC-14**: All `--recap-*` CLI flags removed; legacy subcommands rejected with migration hints.
 - **AC-15**: The spec's verification list is covered by assertion-based bun scripts that fail
   through assertions, and `pnpm check && pnpm lint && pnpm format:check && pnpm test` passes.
+- **AC-16** (spec "Existing behavior retained", first-class): the widget remains above the
+  editor; manual, resume/fork, compaction, and Auto Recap share one generation path; Auto Recap
+  requires uninterrupted inactivity for the full Idle Delay; Recent Messages counts visible
+  user/assistant messages with compaction summaries as background; the previous successful
+  recap remains visible if refresh fails; a configured-but-unavailable/unauthenticated model,
+  an empty conversation, and an empty response continue to produce user-visible feedback.
 
 Human decisions from the understanding check (settled):
 
@@ -109,7 +120,7 @@ Human decisions from the understanding check (settled):
   - Exact 0.80.10 API surface: `completeSimple` location (root vs `/compat`), `max` in
     `ThinkingLevel`, `SimpleStreamOptions.reasoning` type, auth-result env field,
     SelectList/Input/Container details, `getSelectListTheme` and `VERSION` exports. Task 01
-    records the verified surface in a sync artifact all later tasks receive.
+    records the verified surface in the C5 sync artifact all later tasks receive.
   - The safe-chain pnpm wrapper may hide 0.80.10 during install; fall back to
     `--safe-chain-skip-minimum-package-age` or the unwrapped tool.
 
@@ -206,184 +217,236 @@ export async function openRecapSettingsMenu(deps: {
 
 Screen structure, key routing, and the 7-step Save flow are fixed in `source-plan_0_5_0.md` M4.
 One `ctx.ui.custom()` overlay hosting an internal screen stack; draft-only mutation until Save.
+The menu's `custom()` component must be drivable headlessly: constructing it with fake deps and
+feeding key events through its input handler must exercise the real screen stack, real pi-tui
+components, and real reducers without a live terminal (this is how AC-7's Escape/Save semantics
+are asserted).
 
 ### C5 — sync artifact from task 01
 
-Task 01 writes `<RUNDIR>/tasks/01-baseline-api-notes.md`: verified 0.80.10 exports and
-signatures for every item in `source-plan_0_5_0.md` M0 step 2, each marked
-CONFIRMED-AS-SPEC / DIFFERS (with actual). Later assignments quote it verbatim.
+Task 01 writes `<RUNDIR>/tasks/01-baseline-api-notes.md` **before writing any feature code**:
+verified 0.80.10 exports and signatures for every item in `source-plan_0_5_0.md` M0 step 2,
+each marked CONFIRMED-AS-SPEC / DIFFERS (with actual). Later assignments quote it verbatim.
+
+### C6 — load safety (version guard must be reachable)
+
+`src/index.ts`'s **static** imports are restricted to: `@earendil-works/pi-coding-agent` root
+exports that exist at 0.74.0 (`VERSION`, `getAgentDir`, types), `src/config.ts`, and
+`src/commands.ts` (whose only Pi import is `getAgentDir`). `src/generate.ts` and
+`src/settings-menu.ts` — the modules touching version-sensitive pi-ai/pi-tui surface — are
+loaded via **dynamic `import()` after the version guard passes**. Type-only imports are exempt
+(erased at runtime). This guarantees an older Pi reaches the guard's friendly
+`session_start` error instead of crashing at module load. Task 04's report must include a named
+inspection line confirming the static-import allowlist.
+
+### C7 — typed `thinking` with a configured-but-unresolvable model (pinned behavior)
+
+`/recap thinking <level>` when `recapModel` is non-null but `registry.find()` misses (after
+`refresh()`): persist the valid stored level as-is and warn
+`Recap: <provider>/<id> is not currently available; Recap Thinking Level <level> will be
+clamped when the model is available.` No crash, no invented fallback. AC-6 stays satisfied
+because every generation preflight (gate 4) and menu Save clamp against the resolved model
+before any request; an unsupported level can be _stored_ but never silently _effective_.
 
 ## Tasks
 
-| seq | slug            | deps   | complexity | builder           | covers                                   |
-| --- | --------------- | ------ | ---------- | ----------------- | ---------------------------------------- |
-| 01  | baseline        | —      | medium     | codex sol · high  | AC-13                                    |
-| 02  | config-commands | 01     | medium     | codex sol · high  | AC-2, AC-8, AC-9, AC-10, AC-14 (parsing) |
-| 03  | generate        | 02     | medium     | codex sol · high  | AC-3, AC-5, AC-6, AC-11                  |
-| 04  | settings-menu   | 02     | high       | codex sol · xhigh | AC-1, AC-4, AC-7                         |
-| 05  | index-rewrite   | 03, 04 | high       | codex sol · xhigh | AC-3, AC-5, AC-12, AC-14                 |
-| 06  | finish          | 05     | medium     | codex sol · high  | AC-15                                    |
+| seq | slug                     | deps   | complexity | builder           | covers                                                   |
+| --- | ------------------------ | ------ | ---------- | ----------------- | -------------------------------------------------------- |
+| 01  | baseline-config-commands | —      | high       | codex sol · xhigh | AC-2, AC-8, AC-9, AC-10, AC-13, AC-14 (parsing)          |
+| 02  | generate                 | 01     | medium     | codex sol · high  | AC-3, AC-5, AC-6, AC-11                                  |
+| 03  | settings-menu            | 01     | high       | codex sol · xhigh | AC-1, AC-4, AC-7                                         |
+| 04  | index-rewrite            | 02, 03 | high       | codex sol · xhigh | AC-1, AC-3, AC-5, AC-6, AC-8, AC-12, AC-13, AC-14, AC-16 |
+| 05  | finish                   | 04     | medium     | codex sol · high  | AC-15                                                    |
 
-### 01-baseline
+Sizing decisions (round-1 critique): former tasks 01 and 02 merged — the seam was a serial
+same-file handoff that unlocked no parallelism (both critics flagged it). The index rewrite
+stays one task — splitting it would recreate exactly that same-file serial seam with an
+unverifiable intermediate state; its landing risk is addressed with a behavioral harness
+(`scripts/test-index.ts`) instead.
 
-- **What**: `source-plan_0_5_0.md` M0 in full — peer ranges to `">=0.80.10"`, upgrade all three
-  Pi packages to 0.80.10 (lockfile updated), `isVersionAtLeast` + `REQUIRED_PI_VERSION` in
-  `src/config.ts` (added alongside the existing code; task 02 rewrites the rest),
-  `scripts/test-baseline.ts`, and the C5 API-verification artifact.
-- **Why**: everything downstream compiles against 0.80.10; the API notes de-risk every later task.
+### 01-baseline-config-commands
+
+- **What**: `source-plan_0_5_0.md` M0 + M1 in full, in that order. First M0: peer ranges to
+  `">=0.80.10"`, upgrade all three Pi packages (lockfile updated), write the C5 API notes from
+  the installed `.d.ts` files, `scripts/test-baseline.ts`. Then M1: rewrite `src/config.ts` to
+  C1 (types, defaults, migration truth tables, global-only `loadRecapConfig`,
+  `buildNormalizedPiRecap`, atomic `saveRecapConfig` preserving sibling top-level keys), new
+  `src/commands.ts` to C2, `scripts/test-config.ts`, `scripts/test-commands.ts`, and a scoped
+  typecheck config `tsconfig.modules.json` (extends `./tsconfig.json`; `files`: the new/
+  rewritten modules and new scripts — not `src/index.ts`).
+- **Why**: baseline plus the schema and grammar every other task builds against; C5 de-risks
+  tasks 02–04.
 - **Deps / Inputs**: none.
-- **Contracts**: produces C5; `isVersionAtLeast`/`REQUIRED_PI_VERSION` part of C1.
+- **Contracts**: produces C5 (before feature code), implements C1 and C2 exactly.
 - **Constraints & Context**: safe-chain wrapper may hide the new versions — use
-  `--safe-chain-skip-minimum-package-age` or unwrapped pnpm if resolution fails. `pnpm check`
-  may fail after upgrade because old `index.ts` compiles against new types; record actual
-  errors in the report; do not fix them (task 05 rewrites index.ts). Do not modify other src
-  behavior.
+  `--safe-chain-skip-minimum-package-age` or unwrapped pnpm if resolution fails. If the C5
+  notes contradict a pinned contract's Pi types, **escalate before writing feature code**.
+  Delete the project-settings merge entirely; legacy `effort` never read; explicit
+  `recapModel: null` blocks legacy inference; first-slash parsing replaces the multi-slash
+  rejection (config.ts:78). Do **not** shim old exports for `src/index.ts` and do not modify
+  `src/index.ts` or `src/conversation.ts`: repo-wide `pnpm check` is expected red until task
+  04 and that is deterministic and recorded, not worked around. Gate instead on
+  `pnpm exec tsc --noEmit -p tsconfig.modules.json` (must be green) plus
+  `eslint src/config.ts src/commands.ts`.
 - **Relevant existing code**: `package.json:15-19` (peer `"*"`), `pnpm-lock.yaml:11-20`,
-  `src/config.ts` (add exports), `node_modules/@earendil-works/*/dist/*.d.ts` post-upgrade.
+  `src/config.ts` (all 139 lines), `src/index.ts:412-517` (current subcommand surface being
+  replaced — read-only), `scripts/test-extract.ts` (bun script style),
+  `node_modules/@earendil-works/*/dist/*.d.ts` post-upgrade.
 - **Verification requirements**:
-  1. `bun run scripts/test-extract.ts` still runs (conversation API unchanged).
-  2. Add `scripts/test-baseline.ts`: peer ranges assert `">=0.80.10"`; `isVersionAtLeast`
-     matrix (`0.80.9` false; `0.80.10`, `0.81.0`, `1.0.0` true; prerelease-tolerant);
-     installed `VERSION` meets baseline.
-  3. Edge cases: prerelease suffixes, unequal segment counts.
+  1. `bun run scripts/test-extract.ts` still runs; `pnpm exec tsc --noEmit -p
+tsconfig.modules.json` green.
+  2. `scripts/test-baseline.ts`: peer ranges assert `">=0.80.10"`; `isVersionAtLeast` matrix
+     (`0.80.9` false; `0.80.10`, `0.81.0`, `1.0.0` true; prerelease-tolerant); **resolved
+     installed versions of all three packages** (each package's own `package.json` version, not
+     peer metadata) meet the baseline. `scripts/test-config.ts`: all 7 levels accepted,
+     junk→`low`; `effort` ignored; the three migration truth tables incl. partial migration;
+     delay preserved while auto disabled; `buildNormalizedPiRecap` exactly 6 keys; global-only
+     loading via fake source (project values must have no effect); save round-trip in temp dir
+     (obsolete keys removed, sibling keys preserved). `scripts/test-commands.ts`: all canonical
+     forms; usage on missing values; first-slash multi-slash ids; `none`; legacy heads →
+     `unknown` with hints; bare/whitespace → `refresh`; garbage → `unknown`.
+  3. Edge cases: prerelease suffixes and unequal segment counts (version compare);
+     `intervalSeconds: 0` → disabled + 300s delay; unsafe integers rejected; whitespace-only
+     model strings.
   4. Manual: none.
-- **Covers**: AC-13.
+- **Covers**: AC-2, AC-8 (config side), AC-9, AC-10, AC-13 (baseline + all-three-packages
+  assertion), AC-14 (parsing side).
 
-### 02-config-commands
-
-- **What**: `source-plan_0_5_0.md` M1 in full — rewrite `src/config.ts` to C1 (types, defaults,
-  per-field migration truth tables, global-only `loadRecapConfig`, `buildNormalizedPiRecap`,
-  atomic `saveRecapConfig` preserving sibling top-level settings keys), new `src/commands.ts`
-  to C2, plus `scripts/test-config.ts` and `scripts/test-commands.ts`.
-- **Why**: the schema and grammar every other task builds against.
-- **Deps / Inputs**: 01 (0.80.10 installed; C5 notes; `isVersionAtLeast` already in config.ts —
-  keep it).
-- **Contracts**: implements C1, C2 exactly.
-- **Constraints & Context**: delete the project-settings merge entirely (spec: project `piRecap`
-  silently ignored). Legacy `effort` never read. Explicit `recapModel: null` blocks legacy
-  provider/model inference. First-slash parsing replaces the multi-slash rejection at
-  config.ts:78. Typed setters and Save share the one normalized writer. `src/index.ts` still
-  imports old names and will not compile until task 05 — that is expected; keep the old
-  exports it needs only if trivially cheap, otherwise let `pnpm check` fail repo-wide and gate
-  on `eslint src/config.ts src/commands.ts` plus the two bun scripts (per source plan M1
-  done-when).
-- **Relevant existing code**: `src/config.ts` (all), `src/index.ts:412-517` (current subcommand
-  surface being replaced), `scripts/test-extract.ts` (bun test style).
-- **Verification requirements**:
-  1. `bun run scripts/test-baseline.ts`, `scripts/test-extract.ts` stay green.
-  2. `scripts/test-config.ts`: all 7 levels accepted, junk→`low`; `effort` ignored; the three
-     migration truth tables incl. partial migration; delay preserved while auto disabled;
-     `buildNormalizedPiRecap` exactly 6 keys; global-only loading via fake source (project
-     values must have no effect); save round-trip in temp dir (obsolete keys removed, sibling
-     keys preserved). `scripts/test-commands.ts`: all canonical forms; usage on missing values;
-     first-slash multi-slash ids; `none`; legacy heads → `unknown` with hints; bare/whitespace →
-     `refresh`; garbage → `unknown`.
-  3. Edge cases: `intervalSeconds: 0` → disabled + 300s delay; unsafe integers rejected;
-     whitespace-only model strings.
-  4. Manual: none.
-- **Covers**: AC-2, AC-8 (config side), AC-9, AC-10, AC-14 (parsing side).
-
-### 03-generate
+### 02-generate
 
 - **What**: `source-plan_0_5_0.md` M2 in full — new `src/generate.ts` to C3 (prompt builder with
   spec's revised-prompt text verbatim, `normalizeRecapText`, sentence-aware `enforceWordLimit`,
   `preflightRecap` with the gate/notification matrix, DI'd `generateRecapText` through the
   0.80.10 simple-completion path), plus `scripts/test-trim.ts`, `scripts/test-prompt.ts`,
-  `scripts/test-gates.ts`.
+  `scripts/test-gates.ts`. Add the new files to `tsconfig.modules.json`.
 - **Why**: the shared generation path all four triggers use.
-- **Deps / Inputs**: 02 (C1 types), 01 (C5 notes: completeSimple location, reasoning option
-  shape, auth fields).
-- **Contracts**: implements C3; consumes C1.
+- **Deps / Inputs**: 01 (C1 types; C5 notes: completeSimple location, reasoning option shape,
+  auth fields).
+- **Contracts**: implements C3; consumes C1; obeys C6 (this module owns the version-sensitive
+  pi-ai imports; it is dynamically imported by index.ts, so its own imports may be static).
 - **Constraints & Context**: gate 1 trigger matrix (manual warns; auto/startup/compaction
   silent); gates 2–3 warn on every trigger; gate 4 self-quiescing persist+notify, save failure
   does not block generation. `reasoning` omitted for `off`. Ellipsis U+2026 appended without
   preceding space. Never retry for length. Pass through whatever credential fields the 0.80.10
-  auth result exposes (per C5 notes).
+  auth result exposes (per C5 notes). **Do not modify `src/index.ts`** — the red repo-wide
+  `pnpm check` is expected and is task 04's to resolve; gate on the scoped tsconfig.
 - **Relevant existing code**: `src/index.ts:139-243` (current runRecap being decomposed — the
-  behavior being preserved), `src/conversation.ts`, C5 notes.
+  behavior being preserved; read-only), `src/conversation.ts`, C5 notes.
 - **Verification requirements**:
-  1. Prior bun scripts stay green.
-  2. Per source plan M2: test-trim (normalization, sentence trim, fallback word trim, at-limit
-     untouched, ellipsis never adds a word, version numbers survive, `?!` runs, no
-     terminators); test-prompt (dynamic limit, "50 words" absent, newest-explicit-state
-     phrases present); test-gates (null-model matrix, missing model/auth warn on manual and
-     auto, clamp persists+notifies exactly once, `reasoning` presence/absence, auth
-     pass-through).
+  1. Prior bun scripts stay green; `pnpm exec tsc --noEmit -p tsconfig.modules.json` green.
+  2. test-trim: normalization, sentence trim, fallback word trim, at-limit untouched, ellipsis
+     never adds a word, version numbers survive, `?!` runs, no terminators. test-prompt:
+     compare `buildRecapSystemPrompt(n)` against the **complete expected prompt string** (the
+     spec's "Revised prompt" contract with the limit interpolated) for at least two limits;
+     assert "50 words" absent. test-gates: null-model trigger matrix, missing model/auth warn
+     on manual and auto, clamp persists+notifies exactly once (second run quiet), `reasoning`
+     presence/absence via capturing fake, auth pass-through, and an **identity assertion that
+     the production default completion dependency is the real 0.80.10 simple-completion
+     export** (import both and compare references), so the old `complete` path cannot hide
+     behind the DI seam.
   3. Edge cases: empty text; limit 1; text of exactly limit words.
   4. Manual: none.
 - **Covers**: AC-3 (gate logic), AC-5, AC-6 (generation-time clamp), AC-11.
 
-### 04-settings-menu
+### 03-settings-menu
 
 - **What**: `source-plan_0_5_0.md` M4 in full — new `src/settings-menu.ts` to C4: one
   `ctx.ui.custom()` overlay, internal screen stack (main/model/thinking/auto/preset/
   customInput), exported pure reducers, `performSave` with the 7-step flow, plus
-  `scripts/test-menu.ts`.
+  `scripts/test-menu.ts`. Add the new files to `tsconfig.modules.json`.
 - **Why**: AC-1's interactive configuration without JSON editing.
-- **Deps / Inputs**: 02 (C1 types + saveConfig), 01 (C5 notes: SelectList/Input/Container
-  actual API, `getSelectListTheme`, whether items can be replaced in place — if not, rebuild
-  the SelectList preserving the selection index).
-- **Contracts**: implements C4; consumes C1.
+- **Deps / Inputs**: 01 (C1 types + saveConfig; C5 notes: SelectList/Input/Container actual
+  API, `getSelectListTheme`, whether items can be replaced in place — if not, rebuild the
+  SelectList preserving the selection index).
+- **Contracts**: implements C4 including the headless-drivable requirement; consumes C1; obeys
+  C6 (dynamically imported by index.ts; own imports may be static).
 - **Constraints & Context**: draft-only mutation until Save; Escape at main discards
   everything; submenu Escape pops without draft change; `applyModelSelection` applies
   model+clamp atomically; model list from `getAvailable()` only after `refresh()`; None row
   first; preselect draft ref or None; filter matches id, provider, and name (filter manually
   if `setFilter` only matches labels); vanished-model Save rejection keeps the menu open with
   nothing written; never touch Pi's active/default model (no `ModelSelectorComponent`).
-  Presets per source plan M4. The menu module must not import `src/index.ts`.
-- **Relevant existing code**: `src/index.ts:36-116` (widget/theme usage style; note current
-  index.ts has no SelectList/menu code — `getSelectListTheme` comes from pi-coding-agent,
-  index.d.ts:24), C5 notes, pi-tui d.ts files.
+  Presets per source plan M4. The menu module must not import `src/index.ts` and **must not
+  modify `src/index.ts`** — the red repo-wide `pnpm check` is expected and is task 04's to
+  resolve.
+- **Relevant existing code**: `src/index.ts:36-116` (widget/theme usage style; current index.ts
+  has no menu code — `getSelectListTheme` comes from pi-coding-agent, index.d.ts:24), C5
+  notes, pi-tui d.ts files.
 - **Verification requirements**:
-  1. Prior bun scripts stay green; `eslint src/settings-menu.ts` clean.
-  2. `scripts/test-menu.ts` per source plan M4: generic thinking storage with null model;
-     atomic model+clamp; auto toggle preserves delay; `parseCustomNumeric` rejections (zero,
-     negatives, floats, junk, unsafe); `performSave` vanished model → `{ok:false}` + zero
-     saveConfig calls; success → normalized config + `clampedFrom`; reducers pure (no
-     performSave call ⇒ zero saveConfig calls).
+  1. Prior bun scripts stay green; `pnpm exec tsc --noEmit -p tsconfig.modules.json` green;
+     `eslint src/settings-menu.ts` clean.
+  2. `scripts/test-menu.ts`, two layers. **Reducer layer** (source plan M4): generic thinking
+     storage with null model; atomic model+clamp; auto toggle preserves delay;
+     `parseCustomNumeric` rejections (zero, negatives, floats, junk, unsafe); `performSave`
+     vanished model → `{ok:false}` + zero saveConfig calls; success → normalized config +
+     `clampedFrom`. **Controller layer** (headless, real components, fake ui/registry/save
+     deps): drive the `custom()` component with key events and assert — Escape on main closes
+     with zero `saveConfig` calls; staged edits then Escape discard everything; submenu Escape
+     pops without draft mutation; Enter on Save with a valid draft persists exactly once and
+     closes; rejected Save (vanished model) notifies, keeps the menu open, writes nothing;
+     model-search input routes to the filter and narrows the list; selecting a model updates
+     the draft label and clamps the draft thinking level.
   3. Edge cases: draft model vanishing mid-menu (thinking falls back to full list; Save
      catches); empty available-model list.
-  4. Manual: TUI walkthrough is deferred to task 05/whole-run verification and recorded if not
-     performed.
-- **Covers**: AC-1 (menu side), AC-4, AC-7.
+  4. Manual: none required beyond the controller tests; anything they cannot reach is named in
+     the report.
+- **Covers**: AC-1 (menu side), AC-4 (report must contain a named inspection line: no
+  `ModelSelectorComponent`, no writes to Pi's model/thinking settings), AC-7.
 
-### 05-index-rewrite
+### 04-index-rewrite
 
-- **What**: `source-plan_0_5_0.md` M3 in full — rewrite `src/index.ts`: version-baseline guard,
-  delete the four flags + overrides plumbing + startup no-model warning, cache
+- **What**: `source-plan_0_5_0.md` M3 in full — rewrite `src/index.ts`: load-safe version guard
+  per C6, delete the four flags + overrides plumbing + startup no-model warning, cache
   `autoRecapEnabled`/`currentIdleDelaySeconds`, wire all four triggers through
   `preflightRecap`/`generateRecapText`, dispatch on `parseRecapCommand` (settings opens the
-  task-04 menu; non-TUI notice via `ctx.hasUI`), typed setters per the source plan's dispatch
-  table, new command description. First fully green tree.
+  task-03 menu; non-TUI notice via `ctx.hasUI`), typed setters per the source plan's dispatch
+  table plus C7, new command description. Structure the wiring so the extension's behavior is
+  drivable by a fake-context harness, and write `scripts/test-index.ts` against it. Delete
+  `tsconfig.modules.json` once repo-wide `pnpm check` is green. First fully green tree.
 - **Why**: converts the module work into the shipping extension.
-- **Deps / Inputs**: 03 and 04 merged (C1–C4 all real); C5 notes.
-- **Contracts**: consumes C1–C4. If a contract cannot work as pinned, escalate; do not reshape.
+- **Deps / Inputs**: 02 and 03 merged (C1–C4 all real); C5 notes; deviations from their reports
+  quoted in the assignment.
+- **Contracts**: consumes C1–C4; implements C6 and C7. If a contract cannot work as pinned,
+  escalate; do not reshape.
 - **Constraints & Context**: runRecap call sequence per source plan M2 §"runRecap call
   sequence": dedup applies to `auto` only; failed gates render no widget, keep previous recap,
   leave `lastRecapEntryId` untouched; empty-conversation notice manual-only, before the
-  spinner. `/recap model` persists unresolvable refs with a warning. Preserve existing alive/
-  generation/leaf post-checks and widget rendering. Bare `/recap` ignores the Auto Recap
-  toggle and Idle Delay.
+  spinner. `/recap model` persists unresolvable refs with a warning; `/recap thinking` per C7.
+  Preserve existing alive/generation/leaf post-checks and widget rendering. Bare `/recap`
+  ignores the Auto Recap toggle and Idle Delay. AC-16 behaviors are requirements, not
+  incidentals.
 - **Relevant existing code**: all of `src/index.ts` (531 lines), the four new modules, C5 notes.
 - **Verification requirements**:
   1. `pnpm check`, `pnpm lint`, and every bun script pass — whole repo, first green tree.
-  2. Update/extend scripts where index wiring changed observable pure behavior (most behavior
-     tests live with tasks 02–04; this task's tests are the compile+suite gates).
-  3. Edge cases: version guard path (guard blocks registration on old Pi — assert
-     `isVersionAtLeast` usage via test-baseline; runtime path is inspection).
-  4. Manual: `pi -p "hi"` non-TUI smoke if a real session is feasible in the worktree —
-     otherwise record as not verified.
-- **Covers**: AC-3 (no startup warning; manual/auto split), AC-5 (wiring), AC-12, AC-14
-  (flags removed).
+  2. `scripts/test-index.ts`: a fake Pi extension-context harness (fake `pi` registration
+     surface, `ctx.ui` recorder, fake registry/auth, fake session entries, injected fake
+     completion fn, controllable timers where needed) that registers the real extension and
+     asserts at minimum: null-model manual `/recap` warns with **no widget change and no
+     model call**, while auto/startup/compaction skip silently; a failed gate leaves the
+     previous recap text and `lastRecapEntryId` untouched; dedup suppresses only `auto`
+     re-runs at the same leaf; bare `/recap` refreshes with `autoRecapEnabled: false`;
+     `/recap auto off` clears the idle timer and preserves the delay, `auto on` reschedules;
+     `/recap delay` updates the cached delay without touching the enabled flag; the `thinking`
+     setter clamps against a resolvable model, persists the effective level, and follows C7
+     when the model is unresolvable; `/recap model` persists an unresolvable ref with a
+     warning; `session_compact` routes through the shared path; a successful generation
+     renders the widget and an empty response warns while keeping the previous recap.
+  3. Edge cases: version-guard path — with the harness faking an old `VERSION`, registration
+     stops after the friendly `session_start` error and no dynamic module import occurs.
+  4. Manual: `pi -p "hi"` non-TUI smoke if feasible — otherwise record as not verified. The
+     report must contain named inspection lines for: zero `registerFlag` calls (AC-14), the
+     C6 static-import allowlist, and no writes to Pi's model/thinking settings (AC-4).
+- **Covers**: AC-1 (settings dispatch + non-TUI notice), AC-3, AC-5, AC-6 (setter path),
+  AC-8 (runtime side), AC-12, AC-13 (load-safe guard), AC-14, AC-16.
 
-### 06-finish
+### 05-finish
 
 - **What**: `source-plan_0_5_0.md` M5 — convert `scripts/test-extract.ts` to assertions, add
   `"test"` script to package.json chaining all bun scripts, update `AGENTS.md` (code map,
   commands) and `README.md` (new command surface, settings menu, config schema + migration
   note), bump version to 0.5.0.
 - **Why**: AC-15 and release hygiene.
-- **Deps / Inputs**: 05 (final module layout to document).
+- **Deps / Inputs**: 04 (final module layout to document).
 - **Contracts**: none new.
 - **Constraints & Context**: README/AGENTS.md must use CONTEXT.md domain language. Docs
   artifacts (CONTEXT.md, docs/specs, docs/adr) are committed by the coordinator, not this
@@ -405,28 +468,33 @@ CONFIRMED-AS-SPEC / DIFFERS (with actual). Later assignments quote it verbatim.
 ### Waves
 
 - Wave 1: 01
-- Wave 2: 02
-- Wave 3: 03 ∥ 04 (parallel, both branch from run branch after 02 merges)
+- Wave 2: 02 ∥ 03 (parallel, both branch from run branch after 01 merges)
+- Wave 3: 04
 - Wave 4: 05
-- Wave 5: 06
 
 ### Sync Points
 
-- 01 → all: `<RUNDIR>/tasks/01-baseline-api-notes.md` (C5) quoted into assignments 02–05. If it
-  contradicts a pinned contract's Pi types, coordinator re-pins before dispatching dependents.
-- 02 → 03/04: merged C1/C2 source is the input; assignments point at the merged files.
-- 03+04 → 05: merged modules; any deviations recorded in their reports get quoted into 05's
+- 01 → 02/03/04: `<RUNDIR>/tasks/01-baseline-api-notes.md` (C5) quoted into dependent
+  assignments. If it contradicts a pinned contract's Pi types, coordinator re-pins before
+  dispatching dependents. 01's report also records the actual post-01 tree state (which
+  repo-wide checks are red and why) — quoted into 02/03 assignments so their builders expect
+  it.
+- 02+03 → 04: merged modules; any deviations recorded in their reports get quoted into 04's
   assignment.
 
 ### Integration Verification
 
-- After 02: `bun run scripts/test-config.ts test-commands.ts test-baseline.ts test-extract.ts`;
-  `eslint src/config.ts src/commands.ts`. Repo-wide `pnpm check` expected red (old index.ts) —
-  record, don't fix.
-- After 03 ∥ 04 merges: both tasks' scripts plus 02's; check no cross-imports of index.ts;
-  repo-wide check still expected red.
-- After 05: full `pnpm check && pnpm lint` green plus all bun scripts — the integration gate.
-- After 06: post-merge validation below.
+- After 01 (chained, not space-separated):
+  `bun run scripts/test-baseline.ts && bun run scripts/test-config.ts && bun run
+scripts/test-commands.ts && bun run scripts/test-extract.ts`;
+  `pnpm exec tsc --noEmit -p tsconfig.modules.json`; `eslint src/config.ts src/commands.ts`.
+  Repo-wide `pnpm check` expected red (old index.ts) — record, don't fix.
+- After 02 ∥ 03 merges: both tasks' scripts plus 01's (each via its own `bun run`); scoped
+  tsconfig green; verify `src/index.ts` untouched by 02/03 (`git log` on the file); repo-wide
+  check still expected red.
+- After 04: full `pnpm check && pnpm lint` green plus all bun scripts (incl. test-index) —
+  the integration gate; `tsconfig.modules.json` gone.
+- After 05: post-merge validation below.
 - Coordinator commits the docs (CONTEXT.md, docs/specs/, docs/adr/) onto the run branch after
   plan approval, before wave 1, so README references resolve.
 
@@ -438,15 +506,19 @@ bun run scripts/test-baseline.ts   # explicit baseline assertion
 ```
 
 Browser verification: not applicable (terminal TUI extension, no web UI). Recorded as such.
+Attempt an interactive TUI walkthrough of `/recap settings` only if a real TUI session is
+feasible; otherwise the coordinator records it as **not manually verified** in `summary.md`
+and the PR (per the settled human decision) — it is never silently dropped.
 
 ## Project Tooling
 
 - Install: `pnpm install` (safe-chain wrapper; add `--safe-chain-skip-minimum-package-age` if a
   fresh version fails to resolve)
 - Build: none
-- Test: `bun run scripts/<script>.ts` per script; `pnpm test` once task 06 adds it
+- Test: `bun run scripts/<script>.ts` per script; `pnpm test` once task 05 adds it
 - Lint: `pnpm lint` (`eslint src/`)
-- Typecheck: `pnpm check` (`tsc --noEmit`)
+- Typecheck: `pnpm check` (`tsc --noEmit`); scoped gate during waves 1–2:
+  `pnpm exec tsc --noEmit -p tsconfig.modules.json`
 - Format check: `pnpm format:check` (`prettier --check .`)
 - Format write: `pnpm format` (`prettier --write .`)
 - Commit style: Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, optional scope e.g.
