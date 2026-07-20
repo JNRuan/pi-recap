@@ -116,7 +116,7 @@
       "cycles": 0,
       "assignment": "tasks/04-index-rewrite-assignment.md",
       "report": "tasks/04-index-rewrite-report.md",
-      "status": "dispatched"
+      "status": "completed"
     }
   ],
   "critics": [
@@ -170,7 +170,7 @@
   "reviewers": [],
   "qa": null,
   "cleanup": {
-    "task_worktrees_removed": ["02-generate", "03-settings-menu"],
+    "task_worktrees_removed": ["02-generate", "03-settings-menu", "04-index-rewrite"],
     "terminals_closed_final": false
   },
   "status": "building",
