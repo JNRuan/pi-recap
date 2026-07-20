@@ -80,7 +80,7 @@
       "cycles": 0,
       "assignment": "tasks/02-generate-assignment.md",
       "report": "tasks/02-generate-report.md",
-      "status": "dispatched"
+      "status": "completed"
     },
     {
       "seq": "03",
@@ -152,7 +152,7 @@
   "reviewers": [],
   "qa": null,
   "cleanup": {
-    "task_worktrees_removed": [],
+    "task_worktrees_removed": ["02-generate"],
     "terminals_closed_final": false
   },
   "status": "building",
