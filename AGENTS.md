@@ -11,10 +11,13 @@ A pi extension that displays a running, task-oriented recap of the recent conver
 ## Code organization
 
 ```
-src/index.ts          Extension entry — lifecycle, widget, /recap command, idle-delay timer
-src/conversation.ts   Plain-text extraction for recent visible user/assistant messages and compaction summaries
-src/config.ts         Settings validation, defaults, arg parsing, config resolution
-scripts/test-extract.ts Smoke tests for conversation extraction
+src/index.ts           Extension entry: lifecycle, widget, /recap dispatch, Idle Delay timer
+src/commands.ts        Canonical /recap subcommand parsing
+src/config.ts          Global settings validation, defaults, migration, persistence
+src/conversation.ts    Recent visible message and compaction-summary extraction
+src/generate.ts        Generation gates, prompt, completion, output trimming
+src/settings-menu.ts   Staged TUI settings menu and draft reducers
+scripts/test-*.ts      Assertion-based behavior suites
 ```
 
 ## Conventions
@@ -28,13 +31,14 @@ scripts/test-extract.ts Smoke tests for conversation extraction
 
 ```bash
 pnpm check        # tsc --noEmit
+pnpm test         # scripts/test-*.ts assertion-based Bun suites
 pnpm lint         # eslint src/
 pnpm format       # prettier --write .
 pnpm format:check # prettier --check .
 ```
 
-Run smoke tests:
+Run one suite directly:
 
 ```bash
-bun run scripts/test-extract.ts
+bun run ./scripts/test-extract.ts
 ```

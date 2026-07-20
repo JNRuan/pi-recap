@@ -1,0 +1,15 @@
+# Code review triage — round 2
+
+All five deduped findings accepted; all are small seam-local fixes with tests. Nothing
+dropped.
+
+| #   | Decision | Notes                                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | Accept   | Sanitizer rework per claude's fix (superset of codex's): strip complete ANSI CSI/OSC sequences first; map ALL separators (`\r\n\t\v\f`, U+2028/9) to spaces; widen control strip to `[\x00-\x1f\x7f-\x9f]`; collapse whitespace runs before the `Recap:` strip. Regression cases: bare CR word split preserved; `ESC[31m...ESC[0m` fully removed; U+0090/9C/9D/9F and U+2028 stripped. |
+| R2  | Accept   | Handle rejection inside the helper: warn "model availability refresh failed (…); using cached model information." and return false, keeping the timeout branch. One catch fixes all six call sites. Test: promptly-rejecting refresh still allows preflight (cached model), setters persist, and the settings menu opens.                                                              |
+| R3  | Accept   | try/catch around write+rename; best-effort unlink of the tmp file (swallow unlink errors) before rethrowing. Test: failing rename leaves no `*.tmp` orphan.                                                                                                                                                                                                                            |
+| R4  | Accept   | Three tests: clamp-save failure → error notice + generation completes + lastRecapText set; reject arm → `/recap thinking low` mid-flight survives (config keeps "low", no clamp notice); re-add `reasoning: false` → effective "off" preflight case in test-gates.                                                                                                                     |
+| R5  | Accept   | New shutdown case with a verifiably armed timer (count 1 → shutdown → count 0), no intervening manual recap; keep the in-flight variant.                                                                                                                                                                                                                                               |
+
+Fix-task complexity: medium (seam-local, fully pinned) → codex gpt-5.6-sol, high effort, in
+the integration worktree. Cap reached: this wave is verified but not re-reviewed (recorded).

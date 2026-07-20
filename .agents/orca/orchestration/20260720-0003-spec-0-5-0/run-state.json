@@ -1,0 +1,272 @@
+{
+  "run": "20260720-0003-spec-0-5-0",
+  "source": {
+    "kind": "file",
+    "spec": "docs/specs/spec_0_5_0.md",
+    "plan": "docs/agents/plan_0_5_0.md",
+    "note": "spec/plan/CONTEXT.md were untracked in the primary working tree; copies snapshotted into RUNDIR"
+  },
+  "started_at": "2026-07-20T00:03:00Z",
+  "base_ref": "main",
+  "base_sha": "d1e9d8c3e0934cd8d48a35ce338259347bc4ef45",
+  "plan_review_tier": "medium",
+  "plan_review_cap": 2,
+  "run_complexity": "medium",
+  "code_review_cap": 2,
+  "adversarial_qa": "skipped",
+  "plan_critique": {
+    "rounds_run": 2,
+    "stop_reason": "cap reached; round-2 accepted edits applied without re-critique",
+    "incidents": [
+      "codex critic r1 first dispatch failed: nested nono sandbox denied local reads; rebooted with --sandbox danger-full-access"
+    ]
+  },
+  "review_fixes_applied": true,
+  "integration_worktree": {
+    "id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0",
+    "path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0",
+    "branch": "20260720-0003-spec-0-5-0"
+  },
+  "repo": {
+    "id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da",
+    "selector": "id:38a97f96-3e4a-47c1-80cd-25f9c5a738da",
+    "path": "/Users/stacktrace/Projects/pi-extensions/pi-recap"
+  },
+  "coordinator_terminal": "term_a5569295-418f-44f0-8086-b3380344469f",
+  "closed_terminals": [
+    "term_22f7786a-7760-483a-a3d5-2a748f11c7dc",
+    "term_0648b1bd-70f7-41b2-b7d7-1b84407d4c65"
+  ],
+  "tasks": [
+    {
+      "seq": "01",
+      "slug": "baseline-config-commands",
+      "task_id": "task_68ca179bb5a1",
+      "complexity": "high",
+      "builder": "codex gpt-5.6-sol xhigh (danger-full-access nono workaround)",
+      "worktree_id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-01-baseline-config-commands",
+      "worktree_path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-01-baseline-config-commands",
+      "branch": "20260720-0003-spec-0-5-0-01-baseline-config-commands",
+      "starting_commit": "387e19b92201f436037aa4431ae90fa661af59f5",
+      "terminal": "term_1f1cce32-0ecc-465c-a654-a3aa2f03836c",
+      "dispatch": "ctx_75cfec1f2dd9",
+      "superseded_dispatches": ["ctx_b2a39271e00a"],
+      "cycles": 0,
+      "assignment": "tasks/01-baseline-config-commands-assignment.md",
+      "report": "tasks/01-baseline-config-commands-report.md",
+      "auto_terminals_closed": [
+        "term_9ff6c95b-34c9-4c32-874a-3d7a7149c030",
+        "term_8f94b5f8-1049-4247-8a74-b11e0a39124f"
+      ],
+      "status": "completed",
+      "incidents": [
+        "first builder terminal (term_f0541028) could not read RUNDIR: nono grants only cover the terminal cwd worktree; --add-dir does not inform nono. Rebooted with: nono run --profile my-codex --allow-cwd --allow <RUNDIR> -- codex ... All future Codex workers in task worktrees boot this way."
+      ],
+      "merged_commit": "797c5f3"
+    },
+    {
+      "seq": "02",
+      "slug": "generate",
+      "task_id": "task_b00ddac1f4ba",
+      "complexity": "medium",
+      "builder": "codex gpt-5.6-sol high (nono --allow RUNDIR, danger-full-access)",
+      "worktree_id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-02-generate",
+      "worktree_path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-02-generate",
+      "branch": "20260720-0003-spec-0-5-0-02-generate",
+      "starting_commit": "a905b48cd275c8685206e9350a2b020d985aadfb",
+      "terminal": "term_809e4305-5113-4fce-8dc7-4154fd2d97fd",
+      "dispatch": "ctx_f8ef8c15bb9f",
+      "superseded_dispatches": [],
+      "cycles": 0,
+      "assignment": "tasks/02-generate-assignment.md",
+      "report": "tasks/02-generate-report.md",
+      "status": "completed"
+    },
+    {
+      "seq": "03",
+      "slug": "settings-menu",
+      "task_id": "task_caac6fa8ead9",
+      "complexity": "high",
+      "builder": "codex gpt-5.6-sol xhigh (nono --allow RUNDIR, danger-full-access)",
+      "worktree_id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-03-settings-menu",
+      "worktree_path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-03-settings-menu",
+      "branch": "20260720-0003-spec-0-5-0-03-settings-menu",
+      "starting_commit": "a905b48cd275c8685206e9350a2b020d985aadfb",
+      "terminal": "term_78f3440b-f395-46f2-8dd5-7f5fb3e9f30c",
+      "dispatch": "ctx_5154750bad25",
+      "superseded_dispatches": [],
+      "cycles": 0,
+      "assignment": "tasks/03-settings-menu-assignment.md",
+      "report": "tasks/03-settings-menu-report.md",
+      "status": "completed"
+    },
+    {
+      "seq": "04",
+      "slug": "index-rewrite",
+      "task_id": "task_f5d47fd91726",
+      "complexity": "high",
+      "builder": "codex gpt-5.6-sol xhigh (nono --allow RUNDIR, danger-full-access)",
+      "worktree_id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-04-index-rewrite",
+      "worktree_path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-04-index-rewrite",
+      "branch": "20260720-0003-spec-0-5-0-04-index-rewrite",
+      "starting_commit": "f09713c56dcf4b5612b49275788f75760361206e",
+      "terminal": "term_7919d1b7-d50f-403b-8064-36cdcf74ce76",
+      "dispatch": "ctx_acebbe4fe4ec",
+      "superseded_dispatches": [],
+      "cycles": 0,
+      "assignment": "tasks/04-index-rewrite-assignment.md",
+      "report": "tasks/04-index-rewrite-report.md",
+      "status": "completed"
+    },
+    {
+      "seq": "05",
+      "slug": "finish",
+      "task_id": "task_d624f9efefa9",
+      "complexity": "medium",
+      "builder": "codex gpt-5.6-sol high (nono --allow RUNDIR, danger-full-access)",
+      "worktree_id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-05-finish",
+      "worktree_path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-05-finish",
+      "branch": "20260720-0003-spec-0-5-0-05-finish",
+      "starting_commit": "175039e14250f1f1b685a755601e8753eae28d84",
+      "terminal": "term_2d943240-4a05-4f44-a3ff-45903c303c57",
+      "dispatch": "ctx_0679fa8062b9",
+      "superseded_dispatches": [],
+      "cycles": 0,
+      "assignment": "tasks/05-finish-assignment.md",
+      "report": "tasks/05-finish-report.md",
+      "status": "completed"
+    }
+  ],
+  "critics": [
+    {
+      "lens": "claude",
+      "model": "fable",
+      "terminal": "term_b6248296-503d-4f3f-b186-d11f640eeee0",
+      "rounds": [
+        {
+          "round": 1,
+          "task": "task_363f20666deb",
+          "dispatch": "ctx_6df9d9e20b60",
+          "head_before": "26a6017375f96dd7e11d598d2c919cb9453718fa",
+          "status": "collected"
+        },
+        {
+          "round": 2,
+          "task": "task_58ac8494cd91",
+          "dispatch": "ctx_3107845214f5",
+          "head_before": "f3acb4c4c46b614556461945069bbb3e3d5b3b92",
+          "status": "collected"
+        }
+      ],
+      "terminal_closed": true
+    },
+    {
+      "lens": "codex",
+      "model": "gpt-5.6-sol",
+      "terminal": "term_3f11fd25-5c8b-4871-8bc6-8298143c2476",
+      "sandbox_note": "inner workspace-write sandbox cannot nest inside outer nono sandbox; rebooted with danger-full-access (still nono-confined). First terminal term_b76fb04b closed; dispatch ctx_39d2a51ab754 superseded.",
+      "rounds": [
+        {
+          "round": 1,
+          "task": "task_72220dfe35f7",
+          "dispatch": "ctx_2a622b0f80c4",
+          "superseded_dispatches": ["ctx_39d2a51ab754"],
+          "head_before": "26a6017375f96dd7e11d598d2c919cb9453718fa",
+          "status": "collected"
+        },
+        {
+          "round": 2,
+          "task": "task_f4e7c9121ae1",
+          "dispatch": "ctx_d990836e920c",
+          "head_before": "f3acb4c4c46b614556461945069bbb3e3d5b3b92",
+          "status": "collected"
+        }
+      ],
+      "terminal_closed": true
+    }
+  ],
+  "reviewers": [
+    {
+      "lens": "claude",
+      "model": "fable",
+      "terminal": "term_6c8f2b9c-c276-4e72-a372-6e70693b854c",
+      "rounds": [
+        {
+          "round": 1,
+          "task": "task_543dc1965b71",
+          "dispatch": "ctx_35fac02de473",
+          "head_before": "5d1b859af9cac216ea089b53d9bf96296e979a7f",
+          "status": "dispatched"
+        }
+      ]
+    },
+    {
+      "lens": "codex",
+      "model": "gpt-5.6-sol",
+      "terminal": "term_6e34dfc7-6464-4954-96ec-8807d4c5fee8",
+      "rounds": [
+        {
+          "round": 1,
+          "task": "task_3dd377325d5a",
+          "dispatch": "ctx_306e906c0fd1",
+          "head_before": "5d1b859af9cac216ea089b53d9bf96296e979a7f",
+          "status": "dispatched"
+        }
+      ]
+    }
+  ],
+  "qa": null,
+  "cleanup": {
+    "task_worktrees_removed": ["02-generate", "03-settings-menu", "04-index-rewrite", "05-finish"],
+    "terminals_closed_final": true,
+    "note": "all manifest-owned terminals closed; task worktrees 01-05 removed; integration worktree retained until PR merge; unowned terminal term_31b77f89 (not created by this run) left alone"
+  },
+  "status": "shipped",
+  "dag": {
+    "01": "task_68ca179bb5a1",
+    "02": "task_b00ddac1f4ba",
+    "03": "task_caac6fa8ead9",
+    "04": "task_f5d47fd91726",
+    "05": "task_d624f9efefa9"
+  },
+  "review_fix_tasks": [
+    {
+      "round": 1,
+      "task_id": "task_8595d62892cc",
+      "terminal": "term_ab66f548-7d79-405b-9e18-c8f10e0ba289",
+      "dispatch": "ctx_0e0013ce8e63",
+      "starting_commit": "c06f20695ffcb878124f435d7b600d3b878ec76d",
+      "fix_commit": "c288b74",
+      "status": "completed",
+      "cycles": 1
+    },
+    {
+      "round": 2,
+      "task_id": "task_165ddedf325d",
+      "terminal": "term_dedc197e-62dc-4145-a81d-95689d5cfb8c",
+      "dispatch": "ctx_6b9802de0f64",
+      "starting_commit": "59bc1868137b779e83e8a07ea0e1f5ef659de7bd",
+      "fix_commit": "d4436de",
+      "status": "completed",
+      "cycles": 1
+    }
+  ],
+  "code_review_complete": true,
+  "code_review": {
+    "rounds_run": 2,
+    "cap": 2,
+    "stop_reason": "cap reached; round-2 fix wave (commit d4436de) verified via full gate but not re-reviewed",
+    "round1": {
+      "findings": 12,
+      "accepted": 12,
+      "fix_commit": "c288b74"
+    },
+    "round2": {
+      "findings_deduped": 5,
+      "accepted": 5,
+      "fix_commit": "d4436de"
+    }
+  },
+  "adversarial_qa_reason": "run complexity policy (medium)",
+  "pr_url": "https://github.com/JNRuan/pi-recap/pull/4"
+}
