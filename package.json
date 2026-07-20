@@ -1,6 +1,6 @@
 {
   "name": "pi-recap",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "license": "MIT",
   "author": "JNRuan <jnruan@gmail.com>",
   "type": "module",
@@ -29,6 +29,7 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
+    "test": "bun run ./scripts/test-baseline.ts && bun run ./scripts/test-config.ts && bun run ./scripts/test-commands.ts && bun run ./scripts/test-extract.ts && bun run ./scripts/test-trim.ts && bun run ./scripts/test-prompt.ts && bun run ./scripts/test-gates.ts && bun run ./scripts/test-menu.ts && bun run ./scripts/test-index.ts",
     "lint": "eslint src/",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
