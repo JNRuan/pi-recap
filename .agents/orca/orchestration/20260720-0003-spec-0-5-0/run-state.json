@@ -98,7 +98,7 @@
       "cycles": 0,
       "assignment": "tasks/03-settings-menu-assignment.md",
       "report": "tasks/03-settings-menu-report.md",
-      "status": "dispatched"
+      "status": "completed"
     }
   ],
   "critics": [
@@ -152,7 +152,7 @@
   "reviewers": [],
   "qa": null,
   "cleanup": {
-    "task_worktrees_removed": ["02-generate"],
+    "task_worktrees_removed": ["02-generate", "03-settings-menu"],
     "terminals_closed_final": false
   },
   "status": "building",
