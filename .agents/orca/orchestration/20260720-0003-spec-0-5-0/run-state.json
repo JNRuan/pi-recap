@@ -134,7 +134,7 @@
       "cycles": 0,
       "assignment": "tasks/05-finish-assignment.md",
       "report": "tasks/05-finish-report.md",
-      "status": "dispatched"
+      "status": "completed"
     }
   ],
   "critics": [
@@ -188,10 +188,10 @@
   "reviewers": [],
   "qa": null,
   "cleanup": {
-    "task_worktrees_removed": ["02-generate", "03-settings-menu", "04-index-rewrite"],
+    "task_worktrees_removed": ["02-generate", "03-settings-menu", "04-index-rewrite", "05-finish"],
     "terminals_closed_final": false
   },
-  "status": "building",
+  "status": "whole-run-verification",
   "dag": {
     "01": "task_68ca179bb5a1",
     "02": "task_b00ddac1f4ba",
