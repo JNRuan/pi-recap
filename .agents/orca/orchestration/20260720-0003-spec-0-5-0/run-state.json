@@ -1,0 +1,42 @@
+{
+  "run": "20260720-0003-spec-0-5-0",
+  "source": {
+    "kind": "file",
+    "spec": "docs/specs/spec_0_5_0.md",
+    "plan": "docs/agents/plan_0_5_0.md",
+    "note": "spec/plan/CONTEXT.md were untracked in the primary working tree; copies snapshotted into RUNDIR"
+  },
+  "started_at": "2026-07-20T00:03:00Z",
+  "base_ref": "main",
+  "base_sha": "d1e9d8c3e0934cd8d48a35ce338259347bc4ef45",
+  "plan_review_tier": "pending",
+  "plan_review_cap": "pending",
+  "run_complexity": "pending",
+  "code_review_cap": "pending",
+  "adversarial_qa": "pending",
+  "review_fixes_applied": false,
+  "integration_worktree": {
+    "id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0",
+    "path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0",
+    "branch": "20260720-0003-spec-0-5-0"
+  },
+  "repo": {
+    "id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da",
+    "selector": "id:38a97f96-3e4a-47c1-80cd-25f9c5a738da",
+    "path": "/Users/stacktrace/Projects/pi-extensions/pi-recap"
+  },
+  "coordinator_terminal": "term_a5569295-418f-44f0-8086-b3380344469f",
+  "closed_terminals": [
+    "term_22f7786a-7760-483a-a3d5-2a748f11c7dc",
+    "term_0648b1bd-70f7-41b2-b7d7-1b84407d4c65"
+  ],
+  "tasks": [],
+  "critics": [],
+  "reviewers": [],
+  "qa": null,
+  "cleanup": {
+    "task_worktrees_removed": [],
+    "terminals_closed_final": false
+  },
+  "status": "setup"
+}
