@@ -99,6 +99,24 @@
       "assignment": "tasks/03-settings-menu-assignment.md",
       "report": "tasks/03-settings-menu-report.md",
       "status": "completed"
+    },
+    {
+      "seq": "04",
+      "slug": "index-rewrite",
+      "task_id": "task_f5d47fd91726",
+      "complexity": "high",
+      "builder": "codex gpt-5.6-sol xhigh (nono --allow RUNDIR, danger-full-access)",
+      "worktree_id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-04-index-rewrite",
+      "worktree_path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0-04-index-rewrite",
+      "branch": "20260720-0003-spec-0-5-0-04-index-rewrite",
+      "starting_commit": "f09713c56dcf4b5612b49275788f75760361206e",
+      "terminal": "term_7919d1b7-d50f-403b-8064-36cdcf74ce76",
+      "dispatch": "ctx_acebbe4fe4ec",
+      "superseded_dispatches": [],
+      "cycles": 0,
+      "assignment": "tasks/04-index-rewrite-assignment.md",
+      "report": "tasks/04-index-rewrite-report.md",
+      "status": "dispatched"
     }
   ],
   "critics": [
