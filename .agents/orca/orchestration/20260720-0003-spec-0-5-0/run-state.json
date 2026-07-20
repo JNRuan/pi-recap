@@ -218,9 +218,10 @@
   "qa": null,
   "cleanup": {
     "task_worktrees_removed": ["02-generate", "03-settings-menu", "04-index-rewrite", "05-finish"],
-    "terminals_closed_final": false
+    "terminals_closed_final": true,
+    "note": "all manifest-owned terminals closed; task worktrees 01-05 removed; integration worktree retained until PR merge; unowned terminal term_31b77f89 (not created by this run) left alone"
   },
-  "status": "pr-prep",
+  "status": "shipped",
   "dag": {
     "01": "task_68ca179bb5a1",
     "02": "task_b00ddac1f4ba",
@@ -266,5 +267,6 @@
       "fix_commit": "d4436de"
     }
   },
-  "adversarial_qa_reason": "run complexity policy (medium)"
+  "adversarial_qa_reason": "run complexity policy (medium)",
+  "pr_url": "https://github.com/JNRuan/pi-recap/pull/4"
 }
