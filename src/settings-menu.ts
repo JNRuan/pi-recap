@@ -13,6 +13,9 @@ import {
   type TUI
 } from "@earendil-works/pi-tui";
 import {
+  errorMessage,
+  parsePositiveSafeInt,
+  refreshModelRegistry,
   type RecapConfig,
   type RecapModelRef,
   type StoredThinkingLevel,
@@ -40,6 +43,7 @@ export interface PerformSaveDeps {
   onSaved(config: RecapConfig): void;
   notify(message: string, type: NotificationType): void;
   done(result: MenuResult): void;
+  refreshTimeoutMs?: number;
 }
 
 export interface RecapSettingsMenuDeps {
@@ -48,6 +52,7 @@ export interface RecapSettingsMenuDeps {
   loadConfig(): RecapConfig;
   saveConfig(config: RecapConfig): void;
   onSaved(config: RecapConfig): void;
+  refreshTimeoutMs?: number;
 }
 
 export interface SettingsMenuInspection {
@@ -145,10 +150,6 @@ function copyConfig(config: RecapConfig): RecapConfig {
   };
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export function applyModelSelection(
   draft: SettingsDraft,
   selection: { ref: RecapModelRef; model: Model<Api> } | null
@@ -184,11 +185,7 @@ export function applyNumericValue(
 }
 
 export function parseCustomNumeric(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (!/^\d+$/.test(trimmed)) return null;
-
-  const value = Number(trimmed);
-  return Number.isSafeInteger(value) && value > 0 ? value : null;
+  return parsePositiveSafeInt(raw);
 }
 
 export function thinkingLevelChoices(model: Model<Api> | null): StoredThinkingLevel[] {
@@ -202,7 +199,13 @@ export async function performSave(
   | { ok: true; config: RecapConfig; clampedFrom: StoredThinkingLevel | null }
   | { ok: false; reason: string }
 > {
-  await deps.registry.refresh();
+  await refreshModelRegistry(
+    deps.registry,
+    (message, type) => {
+      deps.notify(message, type);
+    },
+    deps.refreshTimeoutMs
+  );
 
   let resolvedModel: Model<Api> | null = null;
   if (draft.recapModel !== null) {
@@ -242,7 +245,7 @@ export async function performSave(
 
   if (clampedFrom !== null && config.recapModel !== null) {
     deps.notify(
-      `Recap: thinking level clamped to ${config.thinkingLevel} for ${config.recapModel.provider}/${config.recapModel.id}.`,
+      `Recap: Recap Thinking Level clamped to ${config.thinkingLevel} for ${config.recapModel.provider}/${config.recapModel.id}.`,
       "info"
     );
   }
@@ -431,7 +434,13 @@ export class RecapSettingsController extends Container {
   private async activateMainItem(value: string): Promise<void> {
     switch (value) {
       case "model":
-        await this.options.registry.refresh();
+        await refreshModelRegistry(
+          this.options.registry,
+          (message, type) => {
+            this.options.notify(message, type);
+          },
+          this.options.refreshTimeoutMs
+        );
         this.pushScreen(this.buildModelScreen());
         break;
       case "thinking":
@@ -805,7 +814,13 @@ export class RecapSettingsController extends Container {
 export async function createRecapSettingsController(
   options: CreateRecapSettingsControllerOptions
 ): Promise<RecapSettingsController> {
-  await options.registry.refresh();
+  await refreshModelRegistry(
+    options.registry,
+    (message, type) => {
+      options.notify(message, type);
+    },
+    options.refreshTimeoutMs
+  );
   return new RecapSettingsController(options);
 }
 
@@ -828,6 +843,7 @@ export async function openRecapSettingsMenu(deps: RecapSettingsMenuDeps): Promis
         notify: (message, type) => {
           deps.ui.notify(message, type);
         },
+        refreshTimeoutMs: deps.refreshTimeoutMs,
         done
       }),
     {

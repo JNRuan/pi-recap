@@ -1,9 +1,4 @@
-import {
-  clampThinkingLevel,
-  type Api,
-  type AssistantMessage,
-  type Model
-} from "@earendil-works/pi-ai";
+import { clampThinkingLevel, type Api, type Model } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -30,20 +25,13 @@ import {
   type RecapTimerFacade
 } from "../src/index";
 import type { RecapSettingsMenuDeps } from "../src/settings-menu";
-
-const DEFAULT_CONFIG: RecapConfig = {
-  recapModel: null,
-  thinkingLevel: "low",
-  autoRecapEnabled: true,
-  idleDelaySeconds: 300,
-  wordLimit: 100,
-  recentMessageLimit: 20
-};
-
-interface Notice {
-  message: string;
-  type: "info" | "warning" | "error";
-}
+import {
+  DEFAULT_RECAP_CONFIG as DEFAULT_CONFIG,
+  FakeRegistry,
+  makeModel,
+  makeResponse,
+  type Notice
+} from "./test-support";
 
 interface WidgetCall {
   cleared: boolean;
@@ -178,95 +166,6 @@ class FakeTimers implements RecapTimerFacade {
   }
 }
 
-class FakeRegistry {
-  models: Model<Api>[];
-  auth: { ok: true; apiKey?: string } | { ok: false; error: string } = {
-    ok: true,
-    apiKey: "test-key"
-  };
-  refreshCount = 0;
-
-  constructor(models: readonly Model<Api>[]) {
-    this.models = [...models];
-  }
-
-  refresh(): Promise<void> {
-    this.refreshCount++;
-    return Promise.resolve();
-  }
-
-  find(provider: string, id: string): Model<Api> | undefined {
-    return this.models.find((model) => model.provider === provider && model.id === id);
-  }
-
-  getAvailable(): Model<Api>[] {
-    return [...this.models];
-  }
-
-  getApiKeyAndHeaders(): Promise<{ ok: true; apiKey?: string } | { ok: false; error: string }> {
-    return Promise.resolve(this.auth);
-  }
-}
-
-function makeModel(
-  provider = "test",
-  id = "model",
-  supported: readonly RecapConfig["thinkingLevel"][] = [
-    "off",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max"
-  ]
-): Model<Api> {
-  const levels: readonly RecapConfig["thinkingLevel"][] = [
-    "off",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max"
-  ];
-  return {
-    provider,
-    id,
-    name: `Test ${id}`,
-    api: "openai-responses",
-    baseUrl: "https://example.invalid",
-    reasoning: supported.some((level) => level !== "off"),
-    thinkingLevelMap: Object.fromEntries(
-      levels.map((level) => [level, supported.includes(level) ? level : null])
-    ),
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 100_000,
-    maxTokens: 8_000
-  };
-}
-
-function makeResponse(text: string): AssistantMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text }],
-    api: "openai-responses",
-    provider: "test",
-    model: "model",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
-    },
-    stopReason: "stop",
-    timestamp: 0
-  };
-}
-
 function messageEntries(text = "Continue the current task"): SessionEntry[] {
   return [
     {
@@ -277,13 +176,19 @@ function messageEntries(text = "Continue the current task"): SessionEntry[] {
 }
 
 interface HarnessOptions {
-  version?: string;
+  version?: unknown;
   config?: RecapConfig;
   models?: readonly Model<Api>[];
   entries?: SessionEntry[];
   leafId?: string | null;
   hasUI?: boolean;
   idle?: boolean;
+  refreshTimeoutMs?: number;
+}
+
+interface DeferredCompletion {
+  started: Promise<void>;
+  resolve(text: string): void;
 }
 
 interface IndexHarness {
@@ -297,9 +202,11 @@ interface IndexHarness {
   moduleLoadCount(): number;
   menuOpenCount(): number;
   queueResponse(text: string): void;
+  deferNextCompletion(): DeferredCompletion;
   setMenuBehavior(behavior: ((deps: RecapSettingsMenuDeps) => void) | null): void;
   start(reason?: "startup" | "reload" | "new" | "resume" | "fork"): Promise<void>;
   emit(event: string): Promise<void>;
+  emitWithoutWaiting(event: string): Promise<void>;
   command(args: string): Promise<void>;
   readConfig(): RecapConfig;
   cleanup(): void;
@@ -328,6 +235,10 @@ function createHarness(options: HarnessOptions = {}): IndexHarness {
     entries: options.entries ?? messageEntries()
   };
   const responseQueue: string[] = [];
+  const deferredCompletions: {
+    markStarted(): void;
+    response: Promise<ReturnType<typeof makeResponse>>;
+  }[] = [];
   let completions = 0;
   let moduleLoads = 0;
   let menuOpens = 0;
@@ -335,6 +246,11 @@ function createHarness(options: HarnessOptions = {}): IndexHarness {
 
   const completion: SimpleCompletionFn = () => {
     completions++;
+    const deferred = deferredCompletions.shift();
+    if (deferred !== undefined) {
+      deferred.markStarted();
+      return deferred.response;
+    }
     return Promise.resolve(makeResponse(responseQueue.shift() ?? "Generated recap."));
   };
   const runtimeModules: RecapRuntimeModules = {
@@ -377,7 +293,8 @@ function createHarness(options: HarnessOptions = {}): IndexHarness {
     }),
     agentDir,
     timers,
-    completion
+    completion,
+    refreshTimeoutMs: options.refreshTimeoutMs
   });
 
   const command = async (args: string): Promise<void> => {
@@ -399,6 +316,23 @@ function createHarness(options: HarnessOptions = {}): IndexHarness {
     queueResponse: (text) => {
       responseQueue.push(text);
     },
+    deferNextCompletion: () => {
+      let markStarted = (): void => undefined;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      let resolveResponse: (response: ReturnType<typeof makeResponse>) => void = () => undefined;
+      const response = new Promise<ReturnType<typeof makeResponse>>((resolve) => {
+        resolveResponse = resolve;
+      });
+      deferredCompletions.push({ markStarted, response });
+      return {
+        started,
+        resolve: (text) => {
+          resolveResponse(makeResponse(text));
+        }
+      };
+    },
     setMenuBehavior: (behavior) => {
       menuBehavior = behavior;
     },
@@ -409,6 +343,9 @@ function createHarness(options: HarnessOptions = {}): IndexHarness {
     emit: async (event) => {
       await pi.emit(event, { type: event }, context);
       await runtime.waitForBackgroundTasks();
+    },
+    emitWithoutWaiting: async (event) => {
+      await pi.emit(event, { type: event }, context);
     },
     command,
     readConfig: () =>
@@ -445,6 +382,20 @@ try {
     assert.deepEqual(harness.ui.notices, [
       {
         message: "pi-recap requires Pi >= 0.80.10 (found 0.80.9); recap is disabled.",
+        type: "error"
+      }
+    ]);
+    harness.cleanup();
+  }
+
+  {
+    const harness = createHarness({ version: 80 });
+    assert.equal(harness.pi.commands.size, 0);
+    assert.equal(harness.moduleLoadCount(), 0);
+    await harness.start();
+    assert.deepEqual(harness.ui.notices, [
+      {
+        message: "pi-recap requires Pi >= 0.80.10 (found 0.0.0); recap is disabled.",
         type: "error"
       }
     ]);
@@ -506,6 +457,23 @@ try {
     ]);
     assert.equal(harness.ui.widgets.length, widgetCount);
     assert.equal(harness.completionCount(), 0);
+
+    clearRecordedUI(harness);
+    await harness.start("resume");
+    assert.deepEqual(harness.ui.notices, [
+      { message: "Recap: nothing to recap yet", type: "info" }
+    ]);
+
+    clearRecordedUI(harness);
+    await harness.emit("session_compact");
+    assert.deepEqual(harness.ui.notices, [
+      { message: "Recap: nothing to recap yet", type: "info" }
+    ]);
+
+    clearRecordedUI(harness);
+    harness.timers.advance(DEFAULT_CONFIG.idleDelaySeconds * 1_000);
+    await harness.runtime.waitForBackgroundTasks();
+    assert.deepEqual(harness.ui.notices, []);
     harness.cleanup();
   }
 
@@ -600,7 +568,7 @@ try {
   }
 
   {
-    const model = makeModel("limited", "model", ["off", "low", "medium"]);
+    const model = makeModel({ provider: "limited" }, ["off", "low", "medium"]);
     const harness = createHarness({
       config: {
         ...DEFAULT_CONFIG,
@@ -726,6 +694,199 @@ try {
     await harness.emit("session_compact");
     assert.equal(harness.completionCount(), 3);
     assert.equal(harness.runtime.inspect().lastRecapText, "Compaction recap.");
+    harness.cleanup();
+  }
+
+  // A clamp discovered by an older preflight merges into the latest config instead of
+  // restoring unrelated values from its stale snapshot.
+  {
+    const model = makeModel({ provider: "limited" }, ["off", "low", "medium"]);
+    const harness = createHarness({
+      config: {
+        ...DEFAULT_CONFIG,
+        recapModel: { provider: model.provider, id: model.id },
+        thinkingLevel: "max"
+      },
+      models: [model]
+    });
+    await harness.start();
+
+    let releaseRefresh = (): void => undefined;
+    const refreshStarted = new Promise<void>((resolveStarted) => {
+      harness.registry.refreshImplementation = () =>
+        new Promise<void>((resolveRefresh) => {
+          releaseRefresh = resolveRefresh;
+          resolveStarted();
+        });
+    });
+
+    const recap = harness.command("");
+    await refreshStarted;
+    await harness.command("auto off");
+    assert.equal(harness.readConfig().autoRecapEnabled, false);
+    assert.equal(harness.readConfig().thinkingLevel, "max");
+
+    releaseRefresh();
+    await recap;
+    assert.equal(harness.readConfig().autoRecapEnabled, false);
+    assert.equal(harness.readConfig().thinkingLevel, "medium");
+    assert.ok(
+      harness.ui.notices.some((notice) =>
+        notice.message.includes("Recap Thinking Level clamped to medium")
+      )
+    );
+    harness.cleanup();
+  }
+
+  // A registry refresh that never settles is locally bounded and does not leave generation
+  // pending, while cached model information remains usable.
+  {
+    const model = makeModel();
+    const harness = createHarness({
+      config: { ...DEFAULT_CONFIG, recapModel: { provider: model.provider, id: model.id } },
+      models: [model],
+      refreshTimeoutMs: 1
+    });
+    harness.registry.refreshImplementation = () => new Promise<void>(() => undefined);
+    await harness.start();
+    await harness.command("");
+    assert.equal(harness.completionCount(), 1);
+    assert.equal(harness.runtime.inspect().pending, false);
+    assert.ok(harness.ui.notices.some((notice) => notice.message.includes("refresh timed out")));
+    await harness.command("");
+    assert.equal(harness.completionCount(), 2);
+    harness.cleanup();
+  }
+
+  // Activity during generation invalidates the result and the completion cannot re-render
+  // the widget that input deliberately cleared.
+  {
+    const model = makeModel();
+    const harness = createHarness({
+      config: { ...DEFAULT_CONFIG, recapModel: { provider: model.provider, id: model.id } },
+      models: [model],
+      leafId: "input-leaf"
+    });
+    await harness.start();
+    harness.queueResponse("Stable recap.");
+    await harness.command("");
+    const stableState = harness.runtime.inspect();
+
+    const deferred = harness.deferNextCompletion();
+    const recap = harness.command("");
+    await deferred.started;
+    await harness.emitWithoutWaiting("input");
+    const widgetCountAfterInput = harness.ui.widgets.length;
+    deferred.resolve("Stale recap after input.");
+    await recap;
+
+    assert.equal(harness.runtime.inspect().lastRecapText, stableState.lastRecapText);
+    assert.equal(harness.runtime.inspect().lastRecapEntryId, stableState.lastRecapEntryId);
+    assert.equal(harness.ui.widgets.length, widgetCountAfterInput);
+    harness.cleanup();
+  }
+
+  // Shutdown clears lifecycle state and timers, and an in-flight completion cannot resurrect
+  // either state or UI. Later lifecycle events remain no-ops.
+  {
+    const model = makeModel();
+    const harness = createHarness({
+      config: {
+        ...DEFAULT_CONFIG,
+        recapModel: { provider: model.provider, id: model.id },
+        idleDelaySeconds: 1
+      },
+      models: [model]
+    });
+    await harness.start();
+    assert.equal(harness.timers.count(), 1);
+
+    const deferred = harness.deferNextCompletion();
+    const recap = harness.command("");
+    await deferred.started;
+    await harness.emitWithoutWaiting("session_shutdown");
+    assert.equal(harness.runtime.inspect().alive, false);
+    assert.equal(harness.timers.count(), 0);
+    assert.equal(harness.ui.widgets.at(-1)?.cleared, true);
+    const widgetCountAfterShutdown = harness.ui.widgets.length;
+
+    deferred.resolve("Stale recap after shutdown.");
+    await recap;
+    assert.equal(harness.runtime.inspect().lastRecapText, null);
+    assert.equal(harness.runtime.inspect().lastRecapEntryId, null);
+    assert.equal(harness.timers.count(), 0);
+    assert.equal(harness.ui.widgets.length, widgetCountAfterShutdown);
+
+    for (const event of ["input", "turn_start", "agent_end", "session_compact"]) {
+      await harness.emitWithoutWaiting(event);
+    }
+    assert.equal(harness.runtime.inspect().alive, false);
+    assert.equal(harness.timers.count(), 0);
+    assert.equal(harness.ui.widgets.length, widgetCountAfterShutdown);
+    harness.cleanup();
+  }
+
+  // A leaf change during generation drops the stale result.
+  {
+    const model = makeModel();
+    const harness = createHarness({
+      config: { ...DEFAULT_CONFIG, recapModel: { provider: model.provider, id: model.id } },
+      models: [model],
+      leafId: "original-leaf"
+    });
+    await harness.start();
+    const deferred = harness.deferNextCompletion();
+    const recap = harness.command("");
+    await deferred.started;
+    harness.state.leafId = "new-leaf";
+    deferred.resolve("Stale recap for the original leaf.");
+    await recap;
+    assert.equal(harness.runtime.inspect().lastRecapText, null);
+    assert.equal(harness.runtime.inspect().lastRecapEntryId, null);
+    harness.cleanup();
+  }
+
+  // Concurrent manual refreshes share the in-flight guard and provide feedback for the
+  // request that is intentionally not started.
+  {
+    const model = makeModel();
+    const harness = createHarness({
+      config: { ...DEFAULT_CONFIG, recapModel: { provider: model.provider, id: model.id } },
+      models: [model]
+    });
+    await harness.start();
+    const deferred = harness.deferNextCompletion();
+    const first = harness.command("");
+    await deferred.started;
+    await harness.command("");
+    assert.equal(harness.completionCount(), 1);
+    assert.deepEqual(latestNotice(harness), {
+      message: "Recap: a refresh is already in progress.",
+      type: "info"
+    });
+    deferred.resolve("Only one recap.");
+    await first;
+    assert.equal(harness.completionCount(), 1);
+    harness.cleanup();
+  }
+
+  // A non-idle timer tick never generates and re-arms the delay for a later idle check.
+  {
+    const model = makeModel();
+    const harness = createHarness({
+      config: {
+        ...DEFAULT_CONFIG,
+        recapModel: { provider: model.provider, id: model.id },
+        idleDelaySeconds: 1
+      },
+      models: [model]
+    });
+    await harness.start();
+    harness.state.idle = false;
+    harness.timers.advance(1_000);
+    await harness.runtime.waitForBackgroundTasks();
+    assert.equal(harness.completionCount(), 0);
+    assert.equal(harness.timers.nextDelay(), 1_000);
     harness.cleanup();
   }
 } finally {

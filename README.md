@@ -60,6 +60,14 @@ Configuration is read only from the global `piRecap` object in `~/.pi/agent/sett
 
 Existing global `provider`, `model`, and `intervalSeconds` values are migrated when settings are next saved. A legacy delay of `0` disables Auto Recap while retaining the default 300-second Idle Delay. The obsolete `effort` field is dropped, and new saves normalize `piRecap` to the schema above.
 
+## Breaking changes in 0.5.0
+
+- The `--recap-*` CLI flags have been removed. Use the global settings, `/recap settings`, or the typed setters above.
+- `/recap on` and `/recap off` are now `/recap auto on` and `/recap auto off`.
+- `/recap interval` is now `/recap delay`, and `/recap recent` is now `/recap messages`.
+- The legacy `effort` key is no longer read. Use `thinkingLevel`.
+- Every successful save normalizes `piRecap` to the six documented keys and drops unknown or obsolete keys.
+
 ## Behavior
 
 - **Independent model:** the Recap Model and Recap Thinking Level do not change Pi's active model or thinking level.

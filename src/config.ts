@@ -1,4 +1,5 @@
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -38,6 +39,9 @@ const DEFAULT_CONFIG: RecapConfig = {
 };
 
 export const REQUIRED_PI_VERSION = "0.80.10";
+export const MODEL_REGISTRY_REFRESH_TIMEOUT_MS = 15_000;
+
+type NotificationType = "info" | "warning" | "error";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -52,6 +56,14 @@ function trimmedNonEmptyString(value: unknown): string | null {
 
 function isPositiveSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+export function parsePositiveSafeInt(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+
+  const value = Number(trimmed);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
@@ -76,7 +88,9 @@ function inferLegacyModel(value: Record<string, unknown>): RecapModelRef | null 
   return provider !== null && id !== null ? { provider, id } : null;
 }
 
-function parseVersionParts(version: string): number[] | null {
+function parseVersionParts(version: unknown): number[] | null {
+  if (typeof version !== "string") return null;
+
   const numericCore = version.split(/[+-]/, 1)[0];
   if (numericCore.length === 0) return null;
 
@@ -87,7 +101,7 @@ function parseVersionParts(version: string): number[] | null {
   return parts.every(Number.isSafeInteger) ? parts : null;
 }
 
-export function isVersionAtLeast(actual: string, required: string): boolean {
+export function isVersionAtLeast(actual: unknown, required: string): boolean {
   const actualParts = parseVersionParts(actual);
   const requiredParts = parseVersionParts(required);
   if (actualParts === null || requiredParts === null) return false;
@@ -164,12 +178,47 @@ export function buildNormalizedPiRecap(config: RecapConfig): Record<string, unkn
   };
 }
 
-function errorMessage(error: unknown): string {
+export function modelLabel(ref: RecapModelRef | null): string {
+  return ref === null ? "(none)" : `${ref.provider}/${ref.id}`;
+}
+
+export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export async function refreshModelRegistry(
+  registry: { refresh(): Promise<void> },
+  notify: (message: string, type: NotificationType) => void,
+  timeoutMs = MODEL_REGISTRY_REFRESH_TIMEOUT_MS
+): Promise<boolean> {
+  const timeoutState: { handle: ReturnType<typeof setTimeout> | null } = { handle: null };
+  let refreshed: boolean;
+  try {
+    refreshed = await Promise.race([
+      registry.refresh().then(() => true),
+      new Promise<false>((resolve) => {
+        timeoutState.handle = setTimeout(() => {
+          resolve(false);
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutState.handle !== null) clearTimeout(timeoutState.handle);
+  }
+
+  if (!refreshed) {
+    notify(
+      "Recap: model availability refresh timed out; using cached model information.",
+      "warning"
+    );
+  }
+  return refreshed;
 }
 
 export function saveRecapConfig(config: RecapConfig, agentDir = getAgentDir()): void {
   const configPath = join(agentDir, "settings.json");
+  const normalizedPiRecap = buildNormalizedPiRecap(config);
+  const temporaryPath = `${configPath}.${process.pid}.${randomUUID()}.tmp`;
   let settings: Record<string, unknown> = {};
 
   try {
@@ -184,9 +233,8 @@ export function saveRecapConfig(config: RecapConfig, agentDir = getAgentDir()): 
     }
   }
 
-  settings.piRecap = buildNormalizedPiRecap(config);
+  settings.piRecap = normalizedPiRecap;
 
-  const temporaryPath = `${configPath}.tmp`;
   writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
   renameSync(temporaryPath, configPath);
 }

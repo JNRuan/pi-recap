@@ -195,4 +195,30 @@ try {
   rmSync(agentDir, { recursive: true, force: true });
 }
 
+const freshAgentDir = mkdtempSync(join(tmpdir(), "pi-recap-config-fresh-"));
+try {
+  saveRecapConfig(DEFAULT_CONFIG, freshAgentDir);
+  const saved: unknown = JSON.parse(readFileSync(join(freshAgentDir, "settings.json"), "utf8"));
+  assert.deepEqual(saved, { piRecap: buildNormalizedPiRecap(DEFAULT_CONFIG) });
+} finally {
+  rmSync(freshAgentDir, { recursive: true, force: true });
+}
+
+for (const [name, original] of [
+  ["invalid-json", "{ definitely not JSON\n"],
+  ["array-root", "[1, 2, 3]\n"]
+] as const) {
+  const corruptAgentDir = mkdtempSync(join(tmpdir(), `pi-recap-config-${name}-`));
+  const settingsPath = join(corruptAgentDir, "settings.json");
+  try {
+    writeFileSync(settingsPath, original, "utf8");
+    assert.throws(() => {
+      saveRecapConfig(DEFAULT_CONFIG, corruptAgentDir);
+    }, /pi-recap: refusing to overwrite/);
+    assert.equal(readFileSync(settingsPath, "utf8"), original);
+  } finally {
+    rmSync(corruptAgentDir, { recursive: true, force: true });
+  }
+}
+
 console.log("test-config: passed");

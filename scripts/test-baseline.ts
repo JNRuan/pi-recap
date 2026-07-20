@@ -57,6 +57,8 @@ assert.equal(isVersionAtLeast("0.80.9-beta.1", REQUIRED_PI_VERSION), false);
 assert.equal(isVersionAtLeast("0.80", REQUIRED_PI_VERSION), false);
 assert.equal(isVersionAtLeast("0.80.10.0", REQUIRED_PI_VERSION), true);
 assert.equal(isVersionAtLeast("0.80.10.1", REQUIRED_PI_VERSION), true);
+assert.equal(isVersionAtLeast(undefined, REQUIRED_PI_VERSION), false);
+assert.equal(isVersionAtLeast(80, REQUIRED_PI_VERSION), false);
 assert.equal(isVersionAtLeast(VERSION, REQUIRED_PI_VERSION), true);
 
 console.log("test-baseline: passed");

@@ -22,25 +22,21 @@ import {
   parseCustomNumeric,
   performSave,
   RecapSettingsController,
-  type NumericField,
-  type RecapModelRegistry
+  type NumericField
 } from "../src/settings-menu";
-import { type RecapConfig, type StoredThinkingLevel, THINKING_LEVELS } from "../src/config";
+import { type RecapConfig, THINKING_LEVELS } from "../src/config";
+import {
+  DEFAULT_RECAP_CONFIG as DEFAULT_CONFIG,
+  FakeRegistry,
+  makeModel,
+  type Notice
+} from "./test-support";
 
 initTheme("dark");
 
 const ENTER = "\r";
 const ESCAPE = "\x1b";
 const DOWN = "\x1b[B";
-
-const DEFAULT_CONFIG: RecapConfig = {
-  recapModel: null,
-  thinkingLevel: "low",
-  autoRecapEnabled: true,
-  idleDelaySeconds: 300,
-  wordLimit: 100,
-  recentMessageLimit: 20
-};
 
 function copyConfig(config: RecapConfig): RecapConfig {
   return {
@@ -50,57 +46,6 @@ function copyConfig(config: RecapConfig): RecapConfig {
         ? null
         : { provider: config.recapModel.provider, id: config.recapModel.id }
   };
-}
-
-function makeModel(
-  provider: string,
-  id: string,
-  name: string,
-  supported: readonly StoredThinkingLevel[]
-): Model<Api> {
-  const thinkingLevelMap = Object.fromEntries(
-    THINKING_LEVELS.map((level) => [level, supported.includes(level) ? level : null])
-  );
-  return {
-    provider,
-    id,
-    name,
-    api: "openai-responses",
-    baseUrl: "https://example.invalid",
-    reasoning: supported.some((level) => level !== "off"),
-    thinkingLevelMap,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 100_000,
-    maxTokens: 8_000
-  };
-}
-
-class FakeRegistry implements RecapModelRegistry {
-  models: Model<Api>[];
-  refreshCount = 0;
-
-  constructor(models: readonly Model<Api>[]) {
-    this.models = [...models];
-  }
-
-  refresh(): Promise<void> {
-    this.refreshCount++;
-    return Promise.resolve();
-  }
-
-  find(provider: string, id: string): Model<Api> | undefined {
-    return this.models.find((model) => model.provider === provider && model.id === id);
-  }
-
-  getAvailable(): Model<Api>[] {
-    return [...this.models];
-  }
-}
-
-interface Notice {
-  message: string;
-  type: "info" | "warning" | "error";
 }
 
 interface Harness {
@@ -117,7 +62,8 @@ interface Harness {
 async function createHarness(
   initialConfig: RecapConfig = DEFAULT_CONFIG,
   models: readonly Model<Api>[] = [],
-  saveError: Error | null = null
+  saveError: Error | null = null,
+  refreshTimeoutMs?: number
 ): Promise<Harness> {
   const registry = new FakeRegistry(models);
   const notices: Notice[] = [];
@@ -153,7 +99,8 @@ async function createHarness(
     done: (result) => {
       events.push("close");
       closed.push(result);
-    }
+    },
+    refreshTimeoutMs
   });
   return {
     controller,
@@ -197,11 +144,10 @@ async function openCustomInput(
   assert.equal(controller.inspect().screen, "customInput");
 }
 
-const limitedModel = makeModel("anthropic", "claude-sonnet", "Claude Sonnet", [
-  "off",
-  "low",
-  "medium"
-]);
+const limitedModel = makeModel(
+  { provider: "anthropic", id: "claude-sonnet", name: "Claude Sonnet" },
+  ["off", "low", "medium"]
+);
 
 // Reducer layer
 const genericThinking = applyThinkingSelection(DEFAULT_CONFIG, "max");
@@ -359,6 +305,21 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
   assert.equal(registry.refreshCount, 1);
 }
 
+// A stalled refresh on model-submenu entry is bounded, so the serialized input queue can
+// continue processing Escape.
+{
+  const harness = await createHarness(DEFAULT_CONFIG, [], null, 1);
+  harness.registry.refreshImplementation = () => new Promise<void>(() => undefined);
+  await openMainRow(harness.controller, "model");
+  assert.equal(harness.controller.inspect().screen, "model");
+  assert.deepEqual(harness.notices.at(-1), {
+    message: "Recap: model availability refresh timed out; using cached model information.",
+    type: "warning"
+  });
+  await harness.controller.handleKey(ESCAPE);
+  assert.equal(harness.controller.inspect().screen, "main");
+}
+
 // Controller layer: main stack, Escape behavior, and all seven main rows.
 {
   const harness = await createHarness();
@@ -458,9 +419,12 @@ assert.deepEqual(saveOrder, ["save:medium", "onSaved:medium", "notify:info", "cl
 
 // Model filtering matches id, provider, and name independently.
 const searchableModels = [
-  makeModel("anthropic", "claude-sonnet", "Claude Sonnet", ["off", "low"]),
-  makeModel("openrouter", "deepseek/deepseek-r1", "Orchid Reasoner", ["off", "low"]),
-  makeModel("google", "gemini-pro", "Gemini Pro", ["off", "low"])
+  makeModel({ provider: "anthropic", id: "claude-sonnet", name: "Claude Sonnet" }, ["off", "low"]),
+  makeModel({ provider: "openrouter", id: "deepseek/deepseek-r1", name: "Orchid Reasoner" }, [
+    "off",
+    "low"
+  ]),
+  makeModel({ provider: "google", id: "gemini-pro", name: "Gemini Pro" }, ["off", "low"])
 ];
 for (const [query, expectedLabel] of [
   ["gemini-pro", "gemini-pro"],

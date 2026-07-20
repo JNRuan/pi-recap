@@ -8,7 +8,7 @@ import {
   type SimpleStreamOptions
 } from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
-import type { RecapConfig } from "./config.js";
+import { modelLabel, refreshModelRegistry, type RecapConfig } from "./config.js";
 
 export type RecapTrigger = "manual" | "auto" | "startup" | "compaction";
 
@@ -28,7 +28,7 @@ export interface PreflightDeps {
     getApiKeyAndHeaders(model: Model<Api>): Promise<RequestAuth>;
   };
   notify(message: string, type: "info" | "warning" | "error"): void;
-  saveConfig(config: RecapConfig): void;
+  refreshTimeoutMs?: number;
 }
 
 export type PreflightResult =
@@ -37,6 +37,7 @@ export type PreflightResult =
       model: Model<Api>;
       auth: ResolvedAuth;
       effectiveLevel: ModelThinkingLevel;
+      levelClamped: boolean;
     }
   | { ok: false };
 
@@ -78,6 +79,8 @@ Return only the paragraph, with no heading, bullets, or markdown. Do not start w
 
 export function normalizeRecapText(raw: string): string {
   return raw
+    .replace(/[\n\t]/g, " ")
+    .replace(/[\x00-\x1f\x7f\x9b]/g, "")
     .trim()
     .replace(/^Recap:\s*/i, "")
     .trim();
@@ -110,15 +113,6 @@ export function enforceWordLimit(text: string, wordLimit: number): string {
   return `${words.slice(0, wordLimit).join(" ")}…`;
 }
 
-function modelLabel(config: RecapConfig): string {
-  const ref = config.recapModel;
-  return ref === null ? "" : `${ref.provider}/${ref.id}`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export async function preflightRecap(
   config: RecapConfig,
   trigger: RecapTrigger,
@@ -135,10 +129,16 @@ export async function preflightRecap(
     return { ok: false };
   }
 
-  await deps.registry.refresh();
+  await refreshModelRegistry(
+    deps.registry,
+    (message, type) => {
+      deps.notify(message, type);
+    },
+    deps.refreshTimeoutMs
+  );
   const model = deps.registry.find(ref.provider, ref.id);
   if (model === undefined) {
-    deps.notify(`Recap: ${modelLabel(config)} is not currently available.`, "warning");
+    deps.notify(`Recap: ${modelLabel(ref)} is not currently available.`, "warning");
     return { ok: false };
   }
 
@@ -149,22 +149,13 @@ export async function preflightRecap(
   }
 
   const effectiveLevel = clampThinkingLevel(model, config.thinkingLevel);
-  if (effectiveLevel !== config.thinkingLevel) {
-    try {
-      deps.saveConfig({ ...config, thinkingLevel: effectiveLevel });
-      deps.notify(
-        `Recap: Recap Thinking Level clamped to ${effectiveLevel} for ${modelLabel(config)}.`,
-        "info"
-      );
-    } catch (error) {
-      deps.notify(
-        `Recap: could not save the effective Recap Thinking Level: ${errorMessage(error)}`,
-        "error"
-      );
-    }
-  }
-
-  return { ok: true, model, auth, effectiveLevel };
+  return {
+    ok: true,
+    model,
+    auth,
+    effectiveLevel,
+    levelClamped: effectiveLevel !== config.thinkingLevel
+  };
 }
 
 export async function generateRecapText(
@@ -187,6 +178,8 @@ export async function generateRecapText(
       apiKey: params.auth.apiKey,
       headers: params.auth.headers,
       env: params.auth.env,
+      timeoutMs: 60_000,
+      maxRetries: 2,
       ...(params.effectiveLevel !== "off" ? { reasoning: params.effectiveLevel } : {})
     }
   );

@@ -9,8 +9,11 @@ import {
 import { Text, type TUI } from "@earendil-works/pi-tui";
 import { parseRecapCommand } from "./commands.js";
 import {
+  errorMessage,
   isVersionAtLeast,
   loadRecapConfig,
+  modelLabel,
+  refreshModelRegistry,
   REQUIRED_PI_VERSION,
   type RecapConfig,
   saveRecapConfig,
@@ -37,7 +40,7 @@ export interface RecapRuntimeModules {
     deps: {
       registry: ExtensionContext["modelRegistry"];
       notify(message: string, type: "info" | "warning" | "error"): void;
-      saveConfig(config: RecapConfig): void;
+      refreshTimeoutMs?: number;
     }
   ): Promise<PreflightResult>;
   generateRecapText: typeof import("./generate.js").generateRecapText;
@@ -54,12 +57,13 @@ export interface RecapTimerFacade {
 }
 
 export interface PiRecapDependencies {
-  version?: string;
+  version?: unknown;
   moduleLoader?: RecapModuleLoader;
   settingsSourceFactory?: (cwd: string, agentDir?: string) => SettingsSource;
   agentDir?: string;
   timers?: RecapTimerFacade;
   completion?: SimpleCompletionFn;
+  refreshTimeoutMs?: number;
 }
 
 export interface PiRecapRuntimeState {
@@ -112,10 +116,6 @@ async function defaultModuleLoader(): Promise<RecapRuntimeModules> {
     enforceWordLimit: generate.enforceWordLimit,
     openRecapSettingsMenu: settingsMenu.openRecapSettingsMenu
   };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function createRecapWidgetRenderer(): {
@@ -192,17 +192,12 @@ function createRecapWidgetRenderer(): {
   return { render, reset };
 }
 
-function modelLabel(config: RecapConfig): string {
-  return config.recapModel === null
-    ? "(none)"
-    : `${config.recapModel.provider}/${config.recapModel.id}`;
-}
-
 export function registerPiRecap(
   pi: ExtensionAPI,
   dependencies: PiRecapDependencies = {}
 ): PiRecapRegistration {
-  const version = dependencies.version ?? VERSION;
+  const rawVersion: unknown = dependencies.version ?? VERSION;
+  const version = typeof rawVersion === "string" ? rawVersion : "0.0.0";
   let lastRecapEntryId: string | null = null;
   let lastRecapText: string | null = null;
   let pending: Promise<void> | null = null;
@@ -246,6 +241,7 @@ export function registerPiRecap(
   }
 
   const modules = Promise.resolve((dependencies.moduleLoader ?? defaultModuleLoader)());
+  void modules.catch(() => undefined);
   const settingsSourceFactory =
     dependencies.settingsSourceFactory ??
     ((cwd: string, agentDir?: string): SettingsSource => SettingsManager.create(cwd, agentDir));
@@ -281,9 +277,11 @@ export function registerPiRecap(
     queueMicrotask(() => {
       const task = work();
       backgroundTasks.add(task);
-      void task.finally(() => {
-        backgroundTasks.delete(task);
-      });
+      void task
+        .finally(() => {
+          backgroundTasks.delete(task);
+        })
+        .catch(() => undefined);
     });
   };
 
@@ -292,7 +290,12 @@ export function registerPiRecap(
 
     const leafId = ctx.sessionManager.getLeafId();
     if (trigger === "auto" && leafId === lastRecapEntryId) return;
-    if (pending !== null) return;
+    if (pending !== null) {
+      if (trigger === "manual") {
+        ctx.ui.notify("Recap: a refresh is already in progress.", "info");
+      }
+      return;
+    }
 
     const myGeneration = generation;
     let loadingShown = false;
@@ -306,7 +309,7 @@ export function registerPiRecap(
         notify: (message, type) => {
           ctx.ui.notify(message, type);
         },
-        saveConfig
+        refreshTimeoutMs: dependencies.refreshTimeoutMs
       });
       if (!preflight.ok) return;
 
@@ -315,12 +318,37 @@ export function registerPiRecap(
       if (!alive || myGeneration !== generation) return;
       if (ctx.sessionManager.getLeafId() !== leafId) return;
 
+      if (preflight.levelClamped) {
+        const latestConfig = loadConfig(ctx);
+        const latestRef = latestConfig.recapModel;
+        if (
+          latestRef !== null &&
+          config.recapModel !== null &&
+          latestRef.provider === config.recapModel.provider &&
+          latestRef.id === config.recapModel.id &&
+          latestConfig.thinkingLevel === config.thinkingLevel
+        ) {
+          try {
+            saveConfig({ ...latestConfig, thinkingLevel: preflight.effectiveLevel });
+            ctx.ui.notify(
+              `Recap: Recap Thinking Level clamped to ${preflight.effectiveLevel} for ${modelLabel(config.recapModel)}.`,
+              "info"
+            );
+          } catch (error) {
+            ctx.ui.notify(
+              `Recap: could not save the effective Recap Thinking Level: ${errorMessage(error)}`,
+              "error"
+            );
+          }
+        }
+      }
+
       const conversationText = buildRecentConversationText(
         ctx.sessionManager.getBranch(),
         config.recentMessageLimit
       );
       if (conversationText.trim().length === 0) {
-        if (trigger === "manual") {
+        if (trigger !== "auto") {
           ctx.ui.notify("Recap: nothing to recap yet", "info");
         }
         return;
@@ -382,15 +410,15 @@ export function registerPiRecap(
     idleTimerHandle = timers.setTimeout(() => {
       idleTimerHandle = null;
       trackBackgroundTask(async () => {
-        if (!alive) return;
-
-        if (!ctx.isIdle()) {
-          widgets.render(ctx, { text: null, loading: false });
-          scheduleIdleRecap(ctx);
-          return;
-        }
-
         try {
+          if (!alive) return;
+
+          if (!ctx.isIdle()) {
+            widgets.render(ctx, { text: null, loading: false });
+            scheduleIdleRecap(ctx);
+            return;
+          }
+
           await runRecap(ctx, "auto");
         } catch (error) {
           ctx.ui.notify(`Recap tick failed: ${errorMessage(error)}`, "warning");
@@ -506,7 +534,13 @@ export function registerPiRecap(
       return;
     }
 
-    await ctx.modelRegistry.refresh();
+    await refreshModelRegistry(
+      ctx.modelRegistry,
+      (message, type) => {
+        ctx.ui.notify(message, type);
+      },
+      dependencies.refreshTimeoutMs
+    );
     const model = ctx.modelRegistry.find(requestedModel.provider, requestedModel.id);
     if (model === undefined) {
       if (!persistConfig(ctx, { ...config, recapModel: requestedModel })) return;
@@ -553,7 +587,13 @@ export function registerPiRecap(
       return;
     }
 
-    await ctx.modelRegistry.refresh();
+    await refreshModelRegistry(
+      ctx.modelRegistry,
+      (message, type) => {
+        ctx.ui.notify(message, type);
+      },
+      dependencies.refreshTimeoutMs
+    );
     const model = ctx.modelRegistry.find(config.recapModel.provider, config.recapModel.id);
     if (model === undefined) {
       if (!persistConfig(ctx, { ...config, thinkingLevel: level })) return;
@@ -603,6 +643,7 @@ export function registerPiRecap(
               registry: ctx.modelRegistry,
               loadConfig: () => loadConfig(ctx),
               saveConfig,
+              refreshTimeoutMs: dependencies.refreshTimeoutMs,
               onSaved: (config) => {
                 applyTimerConfig(ctx, config);
               }
@@ -611,7 +652,7 @@ export function registerPiRecap(
           case "config": {
             const config = loadConfig(ctx);
             ctx.ui.notify(
-              `Recap: model=${modelLabel(config)} thinking=${config.thinkingLevel} auto=${config.autoRecapEnabled ? "on" : "off"} idleDelay=${config.idleDelaySeconds}s recentMessages=${config.recentMessageLimit} maxWords=${config.wordLimit}`,
+              `Recap: model=${modelLabel(config.recapModel)} thinking=${config.thinkingLevel} auto=${config.autoRecapEnabled ? "on" : "off"} idleDelay=${config.idleDelaySeconds}s recentMessages=${config.recentMessageLimit} maxWords=${config.wordLimit}`,
               "info"
             );
             return;

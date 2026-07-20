@@ -1,4 +1,11 @@
-import { THINKING_LEVELS, type RecapModelRef, type StoredThinkingLevel } from "./config";
+import {
+  parsePositiveSafeInt,
+  THINKING_LEVELS,
+  type RecapModelRef,
+  type StoredThinkingLevel
+} from "./config";
+
+export { parsePositiveSafeInt } from "./config";
 
 export type RecapCommand =
   | { kind: "refresh" }
@@ -52,14 +59,6 @@ export function parseModelArg(raw: string): RecapModelRef | null {
   const provider = trimmed.slice(0, slashIndex).trim();
   const id = trimmed.slice(slashIndex + 1).trim();
   return provider.length > 0 && id.length > 0 ? { provider, id } : null;
-}
-
-export function parsePositiveSafeInt(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (!/^\d+$/.test(trimmed)) return null;
-
-  const value = Number(trimmed);
-  return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
 export function parseRecapCommand(args: string): RecapCommand {

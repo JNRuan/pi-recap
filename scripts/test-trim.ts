@@ -4,6 +4,10 @@ import { enforceWordLimit, normalizeRecapText } from "../src/generate";
 assert.equal(normalizeRecapText("  Recap:   Work continues.  "), "Work continues.");
 assert.equal(normalizeRecapText("\nRECAP:\n\tDone.\n"), "Done.");
 assert.equal(normalizeRecapText("  Ordinary text  "), "Ordinary text");
+assert.equal(normalizeRecapText("First line\nsecond\tthird"), "First line second third");
+const escaped = normalizeRecapText("\x1b[31mDanger\x1b[0m\x9b");
+assert.equal(escaped, "[31mDanger[0m");
+assert.equal(/[\x00-\x1f\x7f\x9b]/.test(escaped), false);
 assert.equal(normalizeRecapText("  "), "");
 
 assert.equal(

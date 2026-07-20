@@ -31,7 +31,7 @@ scripts/test-*.ts      Assertion-based behavior suites
 
 ```bash
 pnpm check        # tsc --noEmit
-pnpm test         # all nine assertion-based Bun suites
+pnpm test         # scripts/test-*.ts assertion-based Bun suites
 pnpm lint         # eslint src/
 pnpm format       # prettier --write .
 pnpm format:check # prettier --check .

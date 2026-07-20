@@ -1,11 +1,5 @@
 import { completeSimple } from "@earendil-works/pi-ai/compat";
-import type {
-  Api,
-  AssistantMessage,
-  Context,
-  Model,
-  SimpleStreamOptions
-} from "@earendil-works/pi-ai";
+import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import assert from "node:assert/strict";
 import type { RecapConfig } from "../src/config";
 import {
@@ -17,90 +11,49 @@ import {
   type RecapTrigger,
   type SimpleCompletionFn
 } from "../src/generate";
+import {
+  DEFAULT_RECAP_CONFIG,
+  FakeRegistry,
+  makeModel,
+  makeResponse,
+  type Notice
+} from "./test-support";
 
 const BASE_CONFIG: RecapConfig = {
-  recapModel: { provider: "test", id: "model" },
-  thinkingLevel: "low",
-  autoRecapEnabled: true,
-  idleDelaySeconds: 300,
-  wordLimit: 100,
-  recentMessageLimit: 20
+  ...DEFAULT_RECAP_CONFIG,
+  recapModel: { provider: "test", id: "model" }
 };
-
-function makeModel(overrides: Partial<Model<Api>> = {}): Model<Api> {
-  return {
-    id: "model",
-    name: "Test Model",
-    api: "test-api",
-    provider: "test",
-    baseUrl: "https://example.invalid",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 10_000,
-    maxTokens: 1_000,
-    ...overrides
-  };
-}
-
-function makeResponse(text: string): AssistantMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text }],
-    api: "test-api",
-    provider: "test",
-    model: "model",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
-    },
-    stopReason: "stop",
-    timestamp: 0
-  };
-}
-
-interface Notification {
-  message: string;
-  type: "info" | "warning" | "error";
-}
 
 function makePreflightHarness(options: {
   model?: Model<Api>;
   auth?: Awaited<ReturnType<PreflightDeps["registry"]["getApiKeyAndHeaders"]>>;
-  saveConfig?: (config: RecapConfig) => void;
+  refreshImplementation?: () => Promise<void>;
+  refreshTimeoutMs?: number;
 }) {
-  const notifications: Notification[] = [];
-  let refreshCount = 0;
+  const notifications: Notice[] = [];
   let authCount = 0;
-  let refreshed = false;
+  const registry = new FakeRegistry(options.model === undefined ? [] : [options.model]);
+  registry.refreshImplementation = options.refreshImplementation ?? null;
+  if (options.auth !== undefined) registry.auth = options.auth;
   const deps: PreflightDeps = {
     registry: {
-      refresh: () => {
-        return Promise.resolve().then(() => {
-          refreshCount++;
-          refreshed = true;
-        });
-      },
-      find: () => (refreshed ? options.model : undefined),
+      refresh: () => registry.refresh(),
+      find: (provider, id) => registry.find(provider, id),
       getApiKeyAndHeaders: () => {
         authCount++;
-        return Promise.resolve(options.auth ?? { ok: true, apiKey: "key" });
+        return registry.getApiKeyAndHeaders();
       }
     },
     notify: (message, type) => {
       notifications.push({ message, type });
     },
-    saveConfig: options.saveConfig ?? (() => undefined)
+    refreshTimeoutMs: options.refreshTimeoutMs
   };
 
   return {
     deps,
     notifications,
-    refreshCount: () => refreshCount,
+    refreshCount: () => registry.refreshCount,
     authCount: () => authCount
   };
 }
@@ -153,67 +106,35 @@ const persistedConfig = {
   ...BASE_CONFIG,
   thinkingLevel: "max" as const
 };
-let saveCount = 0;
 const clampHarness = makePreflightHarness({
-  model: makeModel({ thinkingLevelMap: { max: null, xhigh: "xhigh" } }),
-  saveConfig: (config) => {
-    saveCount++;
-    Object.assign(persistedConfig, config);
-  }
+  model: makeModel({ thinkingLevelMap: { max: null, xhigh: "xhigh" } })
 });
 const firstClamp = await preflightRecap(persistedConfig, "auto", clampHarness.deps);
 assert.equal(firstClamp.ok && firstClamp.effectiveLevel, "xhigh");
-assert.equal(persistedConfig.thinkingLevel, "xhigh");
-assert.equal(saveCount, 1);
-assert.deepEqual(clampHarness.notifications, [
-  {
-    message: "Recap: Recap Thinking Level clamped to xhigh for test/model.",
-    type: "info"
-  }
-]);
-clampHarness.notifications.length = 0;
-const secondClamp = await preflightRecap(persistedConfig, "auto", clampHarness.deps);
-assert.equal(secondClamp.ok && secondClamp.effectiveLevel, "xhigh");
-assert.equal(saveCount, 1);
+assert.equal(firstClamp.ok && firstClamp.levelClamped, true);
+assert.equal(persistedConfig.thinkingLevel, "max");
 assert.deepEqual(clampHarness.notifications, []);
 
-const saveErrorHarness = makePreflightHarness({
-  model: makeModel({ reasoning: false }),
-  saveConfig: () => {
-    throw new Error("disk full");
-  }
-});
-const afterSaveError = await preflightRecap(
-  { ...BASE_CONFIG, thinkingLevel: "high" },
-  "manual",
-  saveErrorHarness.deps
+const settledClamp = await preflightRecap(
+  { ...persistedConfig, thinkingLevel: "xhigh" },
+  "auto",
+  clampHarness.deps
 );
-assert.ok(afterSaveError.ok);
-assert.equal(afterSaveError.effectiveLevel, "off");
-assert.deepEqual(saveErrorHarness.notifications, [
+assert.equal(settledClamp.ok && settledClamp.levelClamped, false);
+
+const timeoutHarness = makePreflightHarness({
+  model: makeModel(),
+  refreshImplementation: () => new Promise<void>(() => undefined),
+  refreshTimeoutMs: 1
+});
+const afterRefreshTimeout = await preflightRecap(BASE_CONFIG, "manual", timeoutHarness.deps);
+assert.ok(afterRefreshTimeout.ok);
+assert.deepEqual(timeoutHarness.notifications, [
   {
-    message: "Recap: could not save the effective Recap Thinking Level: disk full",
-    type: "error"
+    message: "Recap: model availability refresh timed out; using cached model information.",
+    type: "warning"
   }
 ]);
-let postSaveErrorCompletionCount = 0;
-const postSaveErrorText = await generateRecapText(
-  {
-    conversationText: "Continue after the persistence error",
-    wordLimit: BASE_CONFIG.wordLimit,
-    model: afterSaveError.model,
-    auth: afterSaveError.auth,
-    effectiveLevel: afterSaveError.effectiveLevel
-  },
-  {
-    completion: () => {
-      postSaveErrorCompletionCount++;
-      return Promise.resolve(makeResponse("generation continued"));
-    }
-  }
-);
-assert.equal(postSaveErrorCompletionCount, 1);
-assert.equal(postSaveErrorText, "generation continued");
 
 assert.equal(defaultCompletion, completeSimple);
 
@@ -265,6 +186,8 @@ for (const call of captured) {
   assert.equal(call.options.apiKey, "secret-key");
   assert.deepEqual(call.options.headers, { "x-test": "header" });
   assert.deepEqual(call.options.env, { TEST_REGION: "region" });
+  assert.equal(call.options.timeoutMs, 60_000);
+  assert.equal(call.options.maxRetries, 2);
 }
 assert.equal(Object.hasOwn(captured[0]?.options ?? {}, "reasoning"), false);
 assert.equal(captured[1]?.options?.reasoning, "high");
