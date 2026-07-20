@@ -5,9 +5,9 @@ base: main
 base_sha: d1e9d8c3e0934cd8d48a35ce338259347bc4ef45
 branch: 20260720-0003-spec-0-5-0
 plan_review_tier: medium
-run_complexity: pending
+run_complexity: medium
 created: 2026-07-20T00:10:52Z
-modified: 2026-07-20T00:35:00Z
+modified: 2026-07-20T00:52:00Z
 ---
 
 # Plan: pi-recap 0.5.0 — interactive settings, model-aware thinking, revised prompt
@@ -38,13 +38,17 @@ every discrepancy in reports.
 
 ## Review Policy
 
-- **Plan-critique cap used**: 2 (from `plan_review_tier: medium`)
-- **Run-complexity rationale**: pending until critique ends. Draft assessment: whole-extension
-  rewrite but a single small subsystem; no auth/payments/data-migration/concurrency primitives
-  (an idle `setTimeout` only); failure impact limited to a dev-tool widget; observability good
-  after this run (typed, linted, assertion suite). Draft tier: medium.
-- **Code-review cap**: pending
-- **Adversarial QA**: pending
+- **Plan-critique cap used**: 2 (from `plan_review_tier: medium`); both rounds run, stopped at
+  cap with round-2 accepted edits applied without re-critique.
+- **Run-complexity rationale**: `medium`. Whole-extension rewrite but a single small subsystem
+  with every design decision pinned by spec + source plan + contracts; no
+  auth/payments/data-migration/concurrency primitives (an idle `setTimeout` only); failure
+  impact limited to a dev-tool widget; observability strong after this run (typed, linted,
+  ten assertion-based bun suites including behavioral harnesses for the menu controller and the
+  wired extension). Critique rounds surfaced verification gaps, all closed by plan edits; no
+  aggregate-risk signal above the ordinary-subsystem tier.
+- **Code-review cap**: 2 (from `run_complexity: medium`)
+- **Adversarial QA**: skip (run complexity policy: medium)
 
 ## Requirements & Acceptance Criteria
 
@@ -119,8 +123,11 @@ Human decisions from the understanding check (settled):
 - **Open** (assigned to task 01, verified before any feature code):
   - Exact 0.80.10 API surface: `completeSimple` location (root vs `/compat`), `max` in
     `ThinkingLevel`, `SimpleStreamOptions.reasoning` type, auth-result env field,
-    SelectList/Input/Container details, `getSelectListTheme` and `VERSION` exports. Task 01
-    records the verified surface in the C5 sync artifact all later tasks receive.
+    SelectList/Input/Container details, `getSelectListTheme` and `VERSION` exports, and
+    **headless constructibility** of SelectList/Input under bun with no TTY. Task 01 records
+    the verified surface in the C5 sync artifact all later tasks receive.
+  - Whether the root tsconfig's `include` covers `scripts/` (decides `tsconfig.modules.json`'s
+    end-of-life; see task 04).
   - The safe-chain pnpm wrapper may hide 0.80.10 during install; fall back to
     `--safe-chain-skip-minimum-package-age` or the unwrapped tool.
 
@@ -180,7 +187,7 @@ export function parsePositiveSafeInt(raw: string): number | null;
 ```
 
 Usage strings and the unknown/legacy-hint message format are fixed in `source-plan_0_5_0.md` M1.
-Only empty/whitespace args yield `refresh`.
+Only empty/whitespace args yield `refresh`. Commands.ts is pure parsing: no Pi imports.
 
 ### C3 — generation module (`src/generate.ts`)
 
@@ -194,7 +201,10 @@ export type PreflightResult =
   | { ok: true; model: Model<Api>; auth: ResolvedAuth; effectiveLevel: ModelThinkingLevel }
   | { ok: false };
 export async function preflightRecap(config: RecapConfig, trigger: RecapTrigger, deps: PreflightDeps): Promise<PreflightResult>;
-export async function generateRecapText(...): Promise<string>; // DI'd completion fn, defaults to real completeSimple
+export const defaultCompletion: SimpleCompletionFn; // the real 0.80.10 simple-completion export, re-exported
+export async function generateRecapText(...): Promise<string>;
+// generateRecapText's completion dependency defaults to `defaultCompletion` (observable binding:
+// tests assert defaultCompletion === the real pi-ai export, and inject fakes through the same seam).
 ```
 
 Gate order/notification matrix and the enforceWordLimit algorithm are fixed in
@@ -217,27 +227,33 @@ export async function openRecapSettingsMenu(deps: {
 
 Screen structure, key routing, and the 7-step Save flow are fixed in `source-plan_0_5_0.md` M4.
 One `ctx.ui.custom()` overlay hosting an internal screen stack; draft-only mutation until Save.
-The menu's `custom()` component must be drivable headlessly: constructing it with fake deps and
-feeding key events through its input handler must exercise the real screen stack, real pi-tui
-components, and real reducers without a live terminal (this is how AC-7's Escape/Save semantics
-are asserted).
+Save order is observable: `saveConfig(draft)` then `onSaved(config)` then close — in that
+order, asserted by the controller tests. The menu's `custom()` component must be drivable
+headlessly: constructing it with fake deps and feeding key events through its input handler
+must exercise the real screen stack, real pi-tui components, and real reducers without a live
+terminal (this is how AC-7's Escape/Save semantics are asserted).
 
 ### C5 — sync artifact from task 01
 
 Task 01 writes `<RUNDIR>/tasks/01-baseline-api-notes.md` **before writing any feature code**:
 verified 0.80.10 exports and signatures for every item in `source-plan_0_5_0.md` M0 step 2,
-each marked CONFIRMED-AS-SPEC / DIFFERS (with actual). Later assignments quote it verbatim.
+each marked CONFIRMED-AS-SPEC / DIFFERS (with actual), plus two probes: (a) instantiate a
+`SelectList` and an `Input` under bun with no TTY and record whether construction and
+input-handling work headlessly; (b) record whether the root tsconfig's effective `include`
+(via `tsc --showConfig`) covers `scripts/`.
 
 ### C6 — load safety (version guard must be reachable)
 
 `src/index.ts`'s **static** imports are restricted to: `@earendil-works/pi-coding-agent` root
-exports that exist at 0.74.0 (`VERSION`, `getAgentDir`, types), `src/config.ts`, and
-`src/commands.ts` (whose only Pi import is `getAgentDir`). `src/generate.ts` and
-`src/settings-menu.ts` — the modules touching version-sensitive pi-ai/pi-tui surface — are
-loaded via **dynamic `import()` after the version guard passes**. Type-only imports are exempt
-(erased at runtime). This guarantees an older Pi reaches the guard's friendly
-`session_start` error instead of crashing at module load. Task 04's report must include a named
-inspection line confirming the static-import allowlist.
+exports that exist at 0.74.0 (`VERSION`, `getAgentDir`, types), `@earendil-works/pi-tui` root
+exports that exist at 0.74.0 (widget rendering needs them and they cannot crash the guard on
+any Pi the guard targets), `src/config.ts` (whose only Pi import is `getAgentDir`), and
+`src/commands.ts` (pure, no Pi imports). `src/generate.ts` and `src/settings-menu.ts` — the
+modules touching version-sensitive pi-ai surface and menu composition — are loaded via
+**dynamic `import()` after the version guard passes**. Type-only imports are exempt (erased at
+runtime). This guarantees an older Pi reaches the guard's friendly `session_start` error
+instead of crashing at module load. Task 04's report must include a named inspection line
+confirming the static-import allowlist.
 
 ### C7 — typed `thinking` with a configured-but-unresolvable model (pinned behavior)
 
@@ -248,15 +264,36 @@ clamped when the model is available.` No crash, no invented fallback. AC-6 stays
 because every generation preflight (gate 4) and menu Save clamp against the resolved model
 before any request; an unsupported level can be _stored_ but never silently _effective_.
 
+### C8 — test-harness seams (task 04)
+
+`scripts/test-index.ts` runs under plain `bun run` (no module mocking), so the wiring must
+expose these injection seams — named here so their absence is a contract violation, not a
+builder judgment call:
+
+- **Version**: the guard reads an injectable version string (defaulting to the real `VERSION`)
+  so the old-Pi path is testable.
+- **Module loading**: the post-guard dynamic imports go through an injectable loader (default:
+  real `import()`), so the harness can observe "no dynamic import occurred" on the old-Pi path
+  and substitute fakes elsewhere if needed.
+- **Settings**: config load/save paths accept an injectable settings source / agent dir. The
+  harness routes ALL reads and writes to a temp directory — it must never touch the real
+  `~/.pi/agent/settings.json`.
+- **Timers**: idle scheduling accepts an injectable clock/timer facade (default: real
+  setTimeout/clearTimeout) so inactivity behavior is assertable without wall-clock waits.
+- **Completion**: via C3's `defaultCompletion` seam.
+
+If any listed test-index assertion has to be weakened or dropped despite these seams, task
+04's report must name it explicitly (same rule as the inspection-only negatives).
+
 ## Tasks
 
-| seq | slug                     | deps   | complexity | builder           | covers                                                   |
-| --- | ------------------------ | ------ | ---------- | ----------------- | -------------------------------------------------------- |
-| 01  | baseline-config-commands | —      | high       | codex sol · xhigh | AC-2, AC-8, AC-9, AC-10, AC-13, AC-14 (parsing)          |
-| 02  | generate                 | 01     | medium     | codex sol · high  | AC-3, AC-5, AC-6, AC-11                                  |
-| 03  | settings-menu            | 01     | high       | codex sol · xhigh | AC-1, AC-4, AC-7                                         |
-| 04  | index-rewrite            | 02, 03 | high       | codex sol · xhigh | AC-1, AC-3, AC-5, AC-6, AC-8, AC-12, AC-13, AC-14, AC-16 |
-| 05  | finish                   | 04     | medium     | codex sol · high  | AC-15                                                    |
+| seq | slug                     | deps   | complexity | builder           | covers                                                          |
+| --- | ------------------------ | ------ | ---------- | ----------------- | --------------------------------------------------------------- |
+| 01  | baseline-config-commands | —      | high       | codex sol · xhigh | AC-2, AC-8, AC-9, AC-10, AC-13, AC-14 (parsing)                 |
+| 02  | generate                 | 01     | medium     | codex sol · high  | AC-3, AC-5, AC-6, AC-11                                         |
+| 03  | settings-menu            | 01     | high       | codex sol · xhigh | AC-1, AC-4, AC-7                                                |
+| 04  | index-rewrite            | 02, 03 | high       | codex sol · xhigh | AC-1, AC-3, AC-5, AC-6, AC-8, AC-11, AC-12, AC-13, AC-14, AC-16 |
+| 05  | finish                   | 04     | medium     | codex sol · high  | AC-15                                                           |
 
 Sizing decisions (round-1 critique): former tasks 01 and 02 merged — the seam was a serial
 same-file handoff that unlocked no parallelism (both critics flagged it). The index rewrite
@@ -267,23 +304,29 @@ unverifiable intermediate state; its landing risk is addressed with a behavioral
 ### 01-baseline-config-commands
 
 - **What**: `source-plan_0_5_0.md` M0 + M1 in full, in that order. First M0: peer ranges to
-  `">=0.80.10"`, upgrade all three Pi packages (lockfile updated), write the C5 API notes from
-  the installed `.d.ts` files, `scripts/test-baseline.ts`. Then M1: rewrite `src/config.ts` to
-  C1 (types, defaults, migration truth tables, global-only `loadRecapConfig`,
-  `buildNormalizedPiRecap`, atomic `saveRecapConfig` preserving sibling top-level keys), new
-  `src/commands.ts` to C2, `scripts/test-config.ts`, `scripts/test-commands.ts`, and a scoped
-  typecheck config `tsconfig.modules.json` (extends `./tsconfig.json`; `files`: the new/
-  rewritten modules and new scripts — not `src/index.ts`).
+  `">=0.80.10"`, upgrade all three Pi packages (lockfile updated), write the C5 API notes
+  (including both probes) from the installed `.d.ts` files, `scripts/test-baseline.ts`. Then
+  M1: rewrite `src/config.ts` to C1 (types, defaults, migration truth tables, global-only
+  `loadRecapConfig`, `buildNormalizedPiRecap`, atomic `saveRecapConfig` preserving sibling
+  top-level keys), new `src/commands.ts` to C2, `scripts/test-config.ts`,
+  `scripts/test-commands.ts`, and the scoped typecheck config `tsconfig.modules.json`.
 - **Why**: baseline plus the schema and grammar every other task builds against; C5 de-risks
   tasks 02–04.
 - **Deps / Inputs**: none.
 - **Contracts**: produces C5 (before feature code), implements C1 and C2 exactly.
 - **Constraints & Context**: safe-chain wrapper may hide the new versions — use
   `--safe-chain-skip-minimum-package-age` or unwrapped pnpm if resolution fails. If the C5
-  notes contradict a pinned contract's Pi types, **escalate before writing feature code**.
-  Delete the project-settings merge entirely; legacy `effort` never read; explicit
-  `recapModel: null` blocks legacy inference; first-slash parsing replaces the multi-slash
-  rejection (config.ts:78). Do **not** shim old exports for `src/index.ts` and do not modify
+  notes contradict a pinned contract's Pi types, **escalate immediately**; continue the M1
+  config/commands work in parallel unless the contradiction touches C1/C2 themselves (it
+  should not — they are almost Pi-independent). `tsconfig.modules.json` must produce a program
+  containing ONLY the new-module files and scripts: extend `./tsconfig.json` but **explicitly
+  replace the inherited input set** with `include: ["scripts/**/*.ts", "src/**/*.ts"]` and
+  `exclude: ["src/index.ts", "src/conversation.ts"]` (globs tolerate files that do not exist
+  yet, so tasks 02/03 never edit this file); verify the effective file list with
+  `pnpm exec tsc --showConfig -p tsconfig.modules.json` and record it in the report. Delete
+  the project-settings merge entirely; legacy `effort` never read; explicit `recapModel: null`
+  blocks legacy inference; first-slash parsing replaces the multi-slash rejection
+  (config.ts:78). Do **not** shim old exports for `src/index.ts` and do not modify
   `src/index.ts` or `src/conversation.ts`: repo-wide `pnpm check` is expected red until task
   04 and that is deterministic and recorded, not worked around. Gate instead on
   `pnpm exec tsc --noEmit -p tsconfig.modules.json` (must be green) plus
@@ -294,7 +337,7 @@ unverifiable intermediate state; its landing risk is addressed with a behavioral
   `node_modules/@earendil-works/*/dist/*.d.ts` post-upgrade.
 - **Verification requirements**:
   1. `bun run scripts/test-extract.ts` still runs; `pnpm exec tsc --noEmit -p
-tsconfig.modules.json` green.
+tsconfig.modules.json` green with the recorded file list.
   2. `scripts/test-baseline.ts`: peer ranges assert `">=0.80.10"`; `isVersionAtLeast` matrix
      (`0.80.9` false; `0.80.10`, `0.81.0`, `1.0.0` true; prerelease-tolerant); **resolved
      installed versions of all three packages** (each package's own `package.json` version, not
@@ -316,20 +359,22 @@ tsconfig.modules.json` green.
 
 - **What**: `source-plan_0_5_0.md` M2 in full — new `src/generate.ts` to C3 (prompt builder with
   spec's revised-prompt text verbatim, `normalizeRecapText`, sentence-aware `enforceWordLimit`,
-  `preflightRecap` with the gate/notification matrix, DI'd `generateRecapText` through the
-  0.80.10 simple-completion path), plus `scripts/test-trim.ts`, `scripts/test-prompt.ts`,
-  `scripts/test-gates.ts`. Add the new files to `tsconfig.modules.json`.
+  `preflightRecap` with the gate/notification matrix, `generateRecapText` with the
+  `defaultCompletion` seam through the 0.80.10 simple-completion path), plus
+  `scripts/test-trim.ts`, `scripts/test-prompt.ts`, `scripts/test-gates.ts`.
 - **Why**: the shared generation path all four triggers use.
 - **Deps / Inputs**: 01 (C1 types; C5 notes: completeSimple location, reasoning option shape,
   auth fields).
-- **Contracts**: implements C3; consumes C1; obeys C6 (this module owns the version-sensitive
-  pi-ai imports; it is dynamically imported by index.ts, so its own imports may be static).
+- **Contracts**: implements C3 (including the observable `defaultCompletion` binding); consumes
+  C1; obeys C6 (this module owns the version-sensitive pi-ai imports; it is dynamically
+  imported by index.ts, so its own imports may be static).
 - **Constraints & Context**: gate 1 trigger matrix (manual warns; auto/startup/compaction
   silent); gates 2–3 warn on every trigger; gate 4 self-quiescing persist+notify, save failure
   does not block generation. `reasoning` omitted for `off`. Ellipsis U+2026 appended without
   preceding space. Never retry for length. Pass through whatever credential fields the 0.80.10
-  auth result exposes (per C5 notes). **Do not modify `src/index.ts`** — the red repo-wide
-  `pnpm check` is expected and is task 04's to resolve; gate on the scoped tsconfig.
+  auth result exposes (per C5 notes). **Do not modify `src/index.ts` or
+  `tsconfig.modules.json`** — the red repo-wide `pnpm check` is expected and is task 04's to
+  resolve; the scoped tsconfig's globs already cover this task's new files.
 - **Relevant existing code**: `src/index.ts:139-243` (current runRecap being decomposed — the
   behavior being preserved; read-only), `src/conversation.ts`, C5 notes.
 - **Verification requirements**:
@@ -340,10 +385,9 @@ tsconfig.modules.json` green.
      spec's "Revised prompt" contract with the limit interpolated) for at least two limits;
      assert "50 words" absent. test-gates: null-model trigger matrix, missing model/auth warn
      on manual and auto, clamp persists+notifies exactly once (second run quiet), `reasoning`
-     presence/absence via capturing fake, auth pass-through, and an **identity assertion that
-     the production default completion dependency is the real 0.80.10 simple-completion
-     export** (import both and compare references), so the old `complete` path cannot hide
-     behind the DI seam.
+     presence/absence via a fake injected through the same seam the default uses, auth
+     pass-through, and the identity assertion `defaultCompletion === <real pi-ai
+simple-completion export>`.
   3. Edge cases: empty text; limit 1; text of exactly limit words.
   4. Manual: none.
 - **Covers**: AC-3 (gate logic), AC-5, AC-6 (generation-time clamp), AC-11.
@@ -353,13 +397,14 @@ tsconfig.modules.json` green.
 - **What**: `source-plan_0_5_0.md` M4 in full — new `src/settings-menu.ts` to C4: one
   `ctx.ui.custom()` overlay, internal screen stack (main/model/thinking/auto/preset/
   customInput), exported pure reducers, `performSave` with the 7-step flow, plus
-  `scripts/test-menu.ts`. Add the new files to `tsconfig.modules.json`.
+  `scripts/test-menu.ts`.
 - **Why**: AC-1's interactive configuration without JSON editing.
 - **Deps / Inputs**: 01 (C1 types + saveConfig; C5 notes: SelectList/Input/Container actual
-  API, `getSelectListTheme`, whether items can be replaced in place — if not, rebuild the
-  SelectList preserving the selection index).
-- **Contracts**: implements C4 including the headless-drivable requirement; consumes C1; obeys
-  C6 (dynamically imported by index.ts; own imports may be static).
+  API, `getSelectListTheme`, headless-constructibility probe result, whether items can be
+  replaced in place — if not, rebuild the SelectList preserving the selection index).
+- **Contracts**: implements C4 including the headless-drivable requirement and the observable
+  Save order (`saveConfig` → `onSaved` → close); consumes C1; obeys C6 (dynamically imported
+  by index.ts; own imports may be static).
 - **Constraints & Context**: draft-only mutation until Save; Escape at main discards
   everything; submenu Escape pops without draft change; `applyModelSelection` applies
   model+clamp atomically; model list from `getAvailable()` only after `refresh()`; None row
@@ -367,8 +412,8 @@ tsconfig.modules.json` green.
   if `setFilter` only matches labels); vanished-model Save rejection keeps the menu open with
   nothing written; never touch Pi's active/default model (no `ModelSelectorComponent`).
   Presets per source plan M4. The menu module must not import `src/index.ts` and **must not
-  modify `src/index.ts`** — the red repo-wide `pnpm check` is expected and is task 04's to
-  resolve.
+  modify `src/index.ts` or `tsconfig.modules.json`** — the red repo-wide `pnpm check` is
+  expected and is task 04's to resolve.
 - **Relevant existing code**: `src/index.ts:36-116` (widget/theme usage style; current index.ts
   has no menu code — `getSelectListTheme` comes from pi-coding-agent, index.d.ts:24), C5
   notes, pi-tui d.ts files.
@@ -380,12 +425,21 @@ tsconfig.modules.json` green.
      `parseCustomNumeric` rejections (zero, negatives, floats, junk, unsafe); `performSave`
      vanished model → `{ok:false}` + zero saveConfig calls; success → normalized config +
      `clampedFrom`. **Controller layer** (headless, real components, fake ui/registry/save
-     deps): drive the `custom()` component with key events and assert — Escape on main closes
-     with zero `saveConfig` calls; staged edits then Escape discard everything; submenu Escape
-     pops without draft mutation; Enter on Save with a valid draft persists exactly once and
-     closes; rejected Save (vanished model) notifies, keeps the menu open, writes nothing;
-     model-search input routes to the filter and narrows the list; selecting a model updates
-     the draft label and clamps the draft thinking level.
+     deps) — the matrix traverses **all seven main rows**: Escape on main closes with zero
+     `saveConfig` calls; staged edits then Escape discard everything; submenu Escape pops
+     without draft mutation; Enter on Save with a valid draft calls `saveConfig` exactly once,
+     then `onSaved` with the saved config, then closes — asserted in that order, including a
+     draft that disables Auto Recap and changes Idle Delay through the menu; rejected Save
+     (vanished model) notifies, keeps the menu open, writes nothing; model-search input routes
+     to the filter and narrows the list for **three separate queries: by id, by provider, by
+     model name**; selecting a model updates the draft label and clamps the draft thinking
+     level; the **thinking screen** offers `getSupportedThinkingLevels` choices with a
+     configured draft model and all levels with a null draft model, and selection updates the
+     draft; the **Auto Recap screen** toggles the draft both ways preserving the delay; each
+     of the **three preset screens** (Idle Delay, Recent Messages, Maximum Words) applies a
+     preset to the correct field; **Custom input** per field: valid submit applies and pops,
+     invalid input shows the inline error with draft unchanged and dialog open, Escape cancels
+     with draft unchanged.
   3. Edge cases: draft model vanishing mid-menu (thinking falls back to full list; Save
      catches); empty available-model list.
   4. Manual: none required beyond the controller tests; anything they cannot reach is named in
@@ -400,14 +454,16 @@ tsconfig.modules.json` green.
   `autoRecapEnabled`/`currentIdleDelaySeconds`, wire all four triggers through
   `preflightRecap`/`generateRecapText`, dispatch on `parseRecapCommand` (settings opens the
   task-03 menu; non-TUI notice via `ctx.hasUI`), typed setters per the source plan's dispatch
-  table plus C7, new command description. Structure the wiring so the extension's behavior is
-  drivable by a fake-context harness, and write `scripts/test-index.ts` against it. Delete
-  `tsconfig.modules.json` once repo-wide `pnpm check` is green. First fully green tree.
+  table plus C7, new command description. Build the C8 seams into the wiring and write
+  `scripts/test-index.ts` against them. End-of-life for `tsconfig.modules.json`: consult C5's
+  probe — if the root tsconfig covers `scripts/`, delete the scoped config once repo-wide
+  `pnpm check` is green; if it does not, keep the scoped config and extend the `check` script
+  to chain it (scripts must not lose typecheck coverage). First fully green tree.
 - **Why**: converts the module work into the shipping extension.
 - **Deps / Inputs**: 02 and 03 merged (C1–C4 all real); C5 notes; deviations from their reports
   quoted in the assignment.
-- **Contracts**: consumes C1–C4; implements C6 and C7. If a contract cannot work as pinned,
-  escalate; do not reshape.
+- **Contracts**: consumes C1–C4; implements C6, C7, and C8. If a contract cannot work as
+  pinned, escalate; do not reshape.
 - **Constraints & Context**: runRecap call sequence per source plan M2 §"runRecap call
   sequence": dedup applies to `auto` only; failed gates render no widget, keep previous recap,
   leave `lastRecapEntryId` untouched; empty-conversation notice manual-only, before the
@@ -418,26 +474,46 @@ tsconfig.modules.json` green.
 - **Relevant existing code**: all of `src/index.ts` (531 lines), the four new modules, C5 notes.
 - **Verification requirements**:
   1. `pnpm check`, `pnpm lint`, and every bun script pass — whole repo, first green tree.
-  2. `scripts/test-index.ts`: a fake Pi extension-context harness (fake `pi` registration
-     surface, `ctx.ui` recorder, fake registry/auth, fake session entries, injected fake
-     completion fn, controllable timers where needed) that registers the real extension and
-     asserts at minimum: null-model manual `/recap` warns with **no widget change and no
-     model call**, while auto/startup/compaction skip silently; a failed gate leaves the
-     previous recap text and `lastRecapEntryId` untouched; dedup suppresses only `auto`
-     re-runs at the same leaf; bare `/recap` refreshes with `autoRecapEnabled: false`;
-     `/recap auto off` clears the idle timer and preserves the delay, `auto on` reschedules;
-     `/recap delay` updates the cached delay without touching the enabled flag; the `thinking`
-     setter clamps against a resolvable model, persists the effective level, and follows C7
-     when the model is unresolvable; `/recap model` persists an unresolvable ref with a
-     warning; `session_compact` routes through the shared path; a successful generation
-     renders the widget and an empty response warns while keeping the previous recap.
-  3. Edge cases: version-guard path — with the harness faking an old `VERSION`, registration
-     stops after the friendly `session_start` error and no dynamic module import occurs.
+  2. `scripts/test-index.ts`: a fake Pi extension-context harness built on the C8 seams (fake
+     `pi` registration surface, `ctx.ui` recorder, fake registry/auth, fake session entries,
+     injected fake completion, temp-dir settings, fake timers) that registers the real
+     extension and asserts at minimum:
+     - null-model manual `/recap` warns with **no widget change and no model call**, while
+       auto/startup/compaction skip silently;
+     - a failed gate leaves the previous recap text and `lastRecapEntryId` untouched;
+     - dedup suppresses only `auto` re-runs at the same leaf; bare `/recap` refreshes with
+       `autoRecapEnabled: false`;
+     - `/recap auto off` clears the idle timer and preserves the delay, `auto on` reschedules;
+       `/recap delay` updates the cached delay without touching the enabled flag;
+     - **inactivity semantics**: `input`/`turn_start` activity resets the idle timer, and Auto
+       Recap does not fire before one full uninterrupted Idle Delay (fake timers);
+     - the `thinking` setter clamps against a resolvable model, persists the effective level,
+       and follows C7 when the model is unresolvable; `/recap model` persists an unresolvable
+       ref with a warning;
+     - **every remaining canonical command**: `/recap settings` in non-TUI mode notifies the
+       TUI-required message (and does not open a menu or generate); `/recap config` reports
+       the effective config in canonical terms; `/recap messages` and `/recap words` persist
+       immediately; `usage` results (setter without value) and `unknown` results (garbage and
+       each legacy head with its migration hint) reach the UI as warnings and trigger **no
+       generation**;
+     - `session_compact` routes through the shared path; **resume/fork startup with a
+       configured, available model generates a recap** (fake completion called);
+     - manual `/recap` on an empty conversation notifies "nothing to recap" pre-spinner;
+     - a successful generation renders the widget; an empty response warns while keeping the
+       previous recap; an **oversized fake completion result is normalized and trimmed per
+       the configured word limit in the rendered widget** (AC-11 wiring);
+     - version-guard path: with an injected old version string, registration stops after the
+       friendly `session_start` error and the injectable loader observes **no dynamic module
+       import**.
+  3. Edge cases: covered by the harness list above (guard path, empty conversation, empty
+     response, oversized response).
   4. Manual: `pi -p "hi"` non-TUI smoke if feasible — otherwise record as not verified. The
      report must contain named inspection lines for: zero `registerFlag` calls (AC-14), the
-     C6 static-import allowlist, and no writes to Pi's model/thinking settings (AC-4).
+     C6 static-import allowlist, no writes to Pi's model/thinking settings (AC-4), and
+     widget-above-editor placement (AC-16's inspection-only residue); plus explicit naming of
+     any test-index assertion that was weakened or dropped (C8).
 - **Covers**: AC-1 (settings dispatch + non-TUI notice), AC-3, AC-5, AC-6 (setter path),
-  AC-8 (runtime side), AC-12, AC-13 (load-safe guard), AC-14, AC-16.
+  AC-8 (runtime side), AC-11 (wiring), AC-12, AC-13 (load-safe guard), AC-14, AC-16.
 
 ### 05-finish
 
@@ -446,7 +522,8 @@ tsconfig.modules.json` green.
   commands) and `README.md` (new command surface, settings menu, config schema + migration
   note), bump version to 0.5.0.
 - **Why**: AC-15 and release hygiene.
-- **Deps / Inputs**: 04 (final module layout to document).
+- **Deps / Inputs**: 04 (final module layout to document; whether `tsconfig.modules.json`
+  survived and how `check` chains it).
 - **Contracts**: none new.
 - **Constraints & Context**: README/AGENTS.md must use CONTEXT.md domain language. Docs
   artifacts (CONTEXT.md, docs/specs, docs/adr) are committed by the coordinator, not this
@@ -477,8 +554,8 @@ tsconfig.modules.json` green.
 - 01 → 02/03/04: `<RUNDIR>/tasks/01-baseline-api-notes.md` (C5) quoted into dependent
   assignments. If it contradicts a pinned contract's Pi types, coordinator re-pins before
   dispatching dependents. 01's report also records the actual post-01 tree state (which
-  repo-wide checks are red and why) — quoted into 02/03 assignments so their builders expect
-  it.
+  repo-wide checks are red and why) and the two C5 probe results — quoted into 02/03
+  assignments so their builders expect it.
 - 02+03 → 04: merged modules; any deviations recorded in their reports get quoted into 04's
   assignment.
 
@@ -490,10 +567,10 @@ scripts/test-commands.ts && bun run scripts/test-extract.ts`;
   `pnpm exec tsc --noEmit -p tsconfig.modules.json`; `eslint src/config.ts src/commands.ts`.
   Repo-wide `pnpm check` expected red (old index.ts) — record, don't fix.
 - After 02 ∥ 03 merges: both tasks' scripts plus 01's (each via its own `bun run`); scoped
-  tsconfig green; verify `src/index.ts` untouched by 02/03 (`git log` on the file); repo-wide
-  check still expected red.
+  tsconfig green; verify `src/index.ts` and `tsconfig.modules.json` untouched by 02/03
+  (`git log` on both files); repo-wide check still expected red.
 - After 04: full `pnpm check && pnpm lint` green plus all bun scripts (incl. test-index) —
-  the integration gate; `tsconfig.modules.json` gone.
+  the integration gate; `tsconfig.modules.json` deleted or chained per C5's probe.
 - After 05: post-merge validation below.
 - Coordinator commits the docs (CONTEXT.md, docs/specs/, docs/adr/) onto the run branch after
   plan approval, before wave 1, so README references resolve.
