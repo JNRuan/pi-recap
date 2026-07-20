@@ -21,7 +21,7 @@
       "codex critic r1 first dispatch failed: nested nono sandbox denied local reads; rebooted with --sandbox danger-full-access"
     ]
   },
-  "review_fixes_applied": false,
+  "review_fixes_applied": true,
   "integration_worktree": {
     "id": "38a97f96-3e4a-47c1-80cd-25f9c5a738da::/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0",
     "path": "/Users/stacktrace/orca/workspaces/pi-recap/20260720-0003-spec-0-5-0",
@@ -227,5 +227,17 @@
     "03": "task_caac6fa8ead9",
     "04": "task_f5d47fd91726",
     "05": "task_d624f9efefa9"
-  }
+  },
+  "review_fix_tasks": [
+    {
+      "round": 1,
+      "task_id": "task_8595d62892cc",
+      "terminal": "term_ab66f548-7d79-405b-9e18-c8f10e0ba289",
+      "dispatch": "ctx_0e0013ce8e63",
+      "starting_commit": "c06f20695ffcb878124f435d7b600d3b878ec76d",
+      "fix_commit": "c288b74",
+      "status": "completed",
+      "cycles": 1
+    }
+  ]
 }
