@@ -58,10 +58,11 @@
         "term_9ff6c95b-34c9-4c32-874a-3d7a7149c030",
         "term_8f94b5f8-1049-4247-8a74-b11e0a39124f"
       ],
-      "status": "dispatched",
+      "status": "completed",
       "incidents": [
         "first builder terminal (term_f0541028) could not read RUNDIR: nono grants only cover the terminal cwd worktree; --add-dir does not inform nono. Rebooted with: nono run --profile my-codex --allow-cwd --allow <RUNDIR> -- codex ... All future Codex workers in task worktrees boot this way."
-      ]
+      ],
+      "merged_commit": "797c5f3"
     }
   ],
   "critics": [
