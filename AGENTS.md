@@ -4,20 +4,23 @@ A pi extension that displays a running, task-oriented recap of the recent conver
 
 ## Tech stack
 
-- **Runtime**: bun (scripts) / pnpm (deps) / jiti (pi loads TS directly)
+- **Runtime**: jiti (pi loads TS directly) / pnpm (scripts and dependencies)
 - **Language**: TypeScript 6, strict, ES2022, bundler module resolution
+- **Testing**: Vitest
 - **Pi packages**: `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, `@earendil-works/pi-tui`
 
 ## Code organization
 
 ```
-src/index.ts           Extension entry: lifecycle, widget, /recap dispatch, Idle Delay timer
-src/commands.ts        Canonical /recap subcommand parsing
-src/config.ts          Global settings validation, defaults, migration, persistence
-src/conversation.ts    Recent visible message and compaction-summary extraction
-src/generate.ts        Generation gates, prompt, completion, output trimming
-src/settings-menu.ts   Staged TUI settings menu and draft reducers
-scripts/test-*.ts      Assertion-based behavior suites
+src/index.ts                   Extension entry: lifecycle, widget, /recap dispatch, timer
+src/index.test.ts              Entry lifecycle and notification behavior
+src/recap/commands.ts          Canonical /recap subcommand parsing
+src/recap/conversation.ts      Recent visible message and compaction-summary extraction
+src/recap/generate.ts          Generation gates, prompt, completion, output trimming
+src/settings/config.ts         Global settings validation, migration, and persistence
+src/settings/menu.ts           Staged TUI settings menu and draft reducers
+src/testing/support.ts         Shared test models and registry fakes
+src/{recap,settings}/*.test.ts Colocated Vitest behavior suites
 ```
 
 ## Conventions
@@ -31,7 +34,8 @@ scripts/test-*.ts      Assertion-based behavior suites
 
 ```bash
 pnpm check        # tsc --noEmit
-pnpm test         # scripts/test-*.ts assertion-based Bun suites
+pnpm test         # Vitest suites
+pnpm test:watch   # Vitest watch mode
 pnpm lint         # eslint src/
 pnpm format       # prettier --write .
 pnpm format:check # prettier --check .
@@ -40,5 +44,5 @@ pnpm format:check # prettier --check .
 Run one suite directly:
 
 ```bash
-bun run ./scripts/test-extract.ts
+pnpm test src/recap/conversation.test.ts
 ```

@@ -230,10 +230,10 @@ Run:
 pnpm check
 pnpm lint
 pnpm format:check
-bun run scripts/test-extract.ts
+pnpm test src/recap/conversation.test.ts
 ```
 
-Any new behavior scripts must also run successfully with Bun and fail through assertions rather than visual console inspection.
+Any new behavior tests must run through Vitest and fail through assertions rather than visual console inspection.
 
 ## Acceptance criteria
 

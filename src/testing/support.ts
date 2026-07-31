@@ -1,5 +1,5 @@
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
-import { THINKING_LEVELS, type RecapConfig, type StoredThinkingLevel } from "../src/config";
+import { THINKING_LEVELS, type RecapConfig, type StoredThinkingLevel } from "../settings/config";
 
 export const DEFAULT_RECAP_CONFIG: RecapConfig = {
   recapModel: null,

@@ -8,7 +8,7 @@ import {
   type SimpleStreamOptions
 } from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
-import { modelLabel, refreshModelRegistry, type RecapConfig } from "./config.js";
+import { modelLabel, refreshModelRegistry, type RecapConfig } from "../settings/config.js";
 
 export type RecapTrigger = "manual" | "auto" | "startup" | "compaction";
 
@@ -133,13 +133,7 @@ export async function preflightRecap(
     return { ok: false };
   }
 
-  await refreshModelRegistry(
-    deps.registry,
-    (message, type) => {
-      deps.notify(message, type);
-    },
-    deps.refreshTimeoutMs
-  );
+  await refreshModelRegistry(deps.registry, deps.refreshTimeoutMs);
   const model = deps.registry.find(ref.provider, ref.id);
   if (model === undefined) {
     deps.notify(`Recap: ${modelLabel(ref)} is not currently available.`, "warning");

@@ -3,9 +3,9 @@ import {
   THINKING_LEVELS,
   type RecapModelRef,
   type StoredThinkingLevel
-} from "./config";
+} from "../settings/config";
 
-export { parsePositiveSafeInt } from "./config";
+export { parsePositiveSafeInt } from "../settings/config";
 
 export type RecapCommand =
   | { kind: "refresh" }

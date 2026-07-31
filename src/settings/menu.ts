@@ -261,13 +261,7 @@ export async function performSave(
   | { ok: true; config: RecapConfig; clampedFrom: StoredThinkingLevel | null }
   | { ok: false; reason: string }
 > {
-  await refreshModelRegistry(
-    deps.registry,
-    (message, type) => {
-      deps.notify(message, type);
-    },
-    deps.refreshTimeoutMs
-  );
+  await refreshModelRegistry(deps.registry, deps.refreshTimeoutMs);
 
   let resolvedModel: Model<Api> | null = null;
   if (draft.recapModel !== null) {
@@ -405,13 +399,7 @@ export class RecapSettingsController extends Container {
       this.updateMainSelection(data);
       const selectedId = MAIN_VALUES[this.mainSelectionIndex];
       if (selectedId === "model" && this.isSettingsConfirmInput(data)) {
-        await refreshModelRegistry(
-          this.options.registry,
-          (message, type) => {
-            this.options.notify(message, type);
-          },
-          this.options.refreshTimeoutMs
-        );
+        await refreshModelRegistry(this.options.registry, this.options.refreshTimeoutMs);
       }
     }
 
@@ -959,13 +947,7 @@ export class RecapSettingsController extends Container {
 export async function createRecapSettingsController(
   options: CreateRecapSettingsControllerOptions
 ): Promise<RecapSettingsController> {
-  await refreshModelRegistry(
-    options.registry,
-    (message, type) => {
-      options.notify(message, type);
-    },
-    options.refreshTimeoutMs
-  );
+  await refreshModelRegistry(options.registry, options.refreshTimeoutMs);
   return new RecapSettingsController(options);
 }
 

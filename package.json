@@ -25,11 +25,13 @@
     "lint-staged": "^17.0.0",
     "prettier": "^3.0.0",
     "typescript": "^6.0.0",
-    "typescript-eslint": "^8.0.0"
+    "typescript-eslint": "^8.0.0",
+    "vitest": "4.1.10"
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "bun run ./scripts/test-baseline.ts && bun run ./scripts/test-config.ts && bun run ./scripts/test-commands.ts && bun run ./scripts/test-extract.ts && bun run ./scripts/test-trim.ts && bun run ./scripts/test-prompt.ts && bun run ./scripts/test-gates.ts && bun run ./scripts/test-menu.ts && bun run ./scripts/test-index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint src/",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
